@@ -9,6 +9,7 @@ project folder is self-contained with its own README, driver code, and
 | Project | Description |
 |---|---|
 | [`wan-failover-monitor/`](wan-failover-monitor/) | Detects a UniFi 5G/LTE WAN failover via public IP polling, auto-updates Cloudflare DDNS, and restarts affected Docker containers (via Portainer) / Proxmox LXCs (via Proxmox VE API) |
+| [`awair-omni-local/`](awair-omni-local/) | Polls an Awair Omni air quality monitor's local API for temperature, humidity, CO2, VOC, PM2.5, lux, noise, and a locally-calculated EPA AQI. Canonical repo/HPM package remains [`Hubitat-AwAir`](https://github.com/kwon2288/Hubitat-AwAir); this copy is kept here for browsing convenience only. |
 
 More drivers will be added here over time — see each project's own
 `README.md` for installation and configuration details specific to that
@@ -37,4 +38,7 @@ folder following this same layout.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 applies repo-wide by default — see [LICENSE](LICENSE).
+Individual project folders may specify a different license in their own
+`LICENSE` file (e.g. `awair-omni-local/` uses CC0); that project-level
+license takes precedence for that folder's contents.
