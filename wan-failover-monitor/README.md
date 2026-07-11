@@ -6,19 +6,20 @@ public IP address, and automates the follow-up tasks that a WAN change
 usually breaks: DNS records pointing at the old IP, a reverse-proxy
 container (Nginx Proxy Manager) that gets stuck routing to the old
 outbound address, and a standalone service (e.g. an MCP server) running
-in its own Proxmox LXC.
+in its own Proxmox LXC or VM.
 
-Built incrementally in three stages, each a self-contained driver you
+Built incrementally in four stages, each a self-contained driver you
 can install on its own:
 
 | Stage | File | Adds |
 |---|---|---|
 | 1 | [`drivers/stage1-wan-ip-monitor.groovy`](drivers/stage1-wan-ip-monitor.groovy) | Public IP polling (via [ipify](https://www.ipify.org/)) + Primary/Failover WAN state detection |
 | 2 | [`drivers/stage2-cloudflare-ddns.groovy`](drivers/stage2-cloudflare-ddns.groovy) | + Automatic Cloudflare DNS A-record update when the IP changes |
-| 3 | [`drivers/stage3-portainer-restart.groovy`](drivers/stage3-portainer-restart.groovy) | + Automatic Docker container restart (via Portainer API) and/or Proxmox LXC reboot (via Proxmox VE API) after a delay |
+| 3 | [`drivers/stage3-portainer-restart.groovy`](drivers/stage3-portainer-restart.groovy) | + Automatic Docker container restart (via Portainer API) after a delay |
+| 4 | [`drivers/stage4-proxmox-restart.groovy`](drivers/stage4-proxmox-restart.groovy) | + Automatic Proxmox LXC/VM reboot (via Proxmox VE API) after a separate delay |
 
-Stage 3 is the "full" driver and is what's meant for day-to-day use;
-Stages 1-2 are kept as separate files mainly for reference / for anyone
+Stage 4 is the "full" driver and is what's meant for day-to-day use;
+Stages 1-3 are kept as separate files mainly for reference / for anyone
 who only wants a subset of the functionality.
 
 Also included, as an independent hub-agnostic safety net (not required
@@ -77,9 +78,7 @@ running at the right time.
 Use the `forceUpdateDns` command to test credentials without waiting for
 an actual IP change.
 
-### Stage 3 — adds Portainer restart + Proxmox LXC reboot
-
-**Portainer (Docker containers, e.g. NPM):**
+### Stage 3 — adds Portainer restart
 
 | Setting | Description |
 |---|---|
@@ -97,25 +96,36 @@ with a non-empty body (deprecated since API v1.22, removed in v1.24).
 This driver explicitly sends an empty body with `Content-Length: 0` to
 avoid `400 Bad Request` errors.
 
-**Proxmox (standalone LXC containers):**
+### Stage 4 — adds Proxmox LXC/VM reboot
 
 | Setting | Description |
 |---|---|
 | Proxmox 호스트 | e.g. `https://192.168.x.x:8006` |
 | Proxmox API Token | Format: `user@realm!tokenid=secret` |
 | Proxmox 노드 이름 | The node name shown in the Proxmox UI |
-| 재부팅할 LXC VMID | Comma-separated VMIDs, e.g. `101,105` |
-| LXC 재부팅까지 대기 시간 | Seconds to wait after the IP change before rebooting |
+| 재부팅할 LXC VMID | Comma-separated LXC VMIDs, e.g. `101,105` |
+| 재부팅할 VM(QEMU) VMID | Comma-separated QEMU VM VMIDs, e.g. `201,202` |
+| Proxmox 재부팅까지 대기 시간(초) | Seconds to wait after the IP change before rebooting (shared by LXC + VM), independent of the Stage 3 Portainer delay |
 
-Use the `restartProxmoxLxc` command to test independently. Proxmox's
+Use the `restartProxmoxGuests` command to test independently. Proxmox's
 default certificate is self-signed, so this driver disables SSL
 verification for this specific call (`ignoreSSLIssues: true`) — keep
 port 8006 LAN-only.
 
+LXC and QEMU guests share the same underlying Proxmox permission path
+(`/vms/{vmid}`), but permissions must still be granted per VMID (or on
+the parent `/vms` path to cover all current and future guests). A
+common failure mode is a `403 Permission check failed (/vms/{vmid},
+VM.PowerMgmt)` error — this means the API token authenticated fine but
+lacks the `VM.PowerMgmt` privilege (via the `PVEVMAdmin` role, or a
+custom role) on that specific VMID. Fix via **Datacenter → Permissions
+→ Add**, granting the token's user the appropriate role on `/vms/{vmid}`
+or `/vms`.
+
 ## Automation ideas
 
 - Trigger Rule Machine / Home Assistant automations off `wanState` changes (e.g. pause NAS backup jobs, throttle non-essential WiFi clients while on the backup WAN)
-- Alert on `ddnsStatus` / `dockerRestartStatus` / `lxcRestartStatus` showing an `Error:` value
+- Alert on `ddnsStatus` / `dockerRestartStatus` / `proxmoxRestartStatus` showing an `Error:` value
 - Combine with UniFi firewall Policy-Based Routing (Kill Switch) rules on non-essential devices to conserve backup-WAN data
 
 ## License

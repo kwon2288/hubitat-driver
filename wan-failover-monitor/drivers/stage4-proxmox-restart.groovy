@@ -1,23 +1,27 @@
 /**
- *  Public IP / WAN Failover Monitor — Stage 3: + Portainer Container Restart
+ *  Public IP / WAN Failover Monitor — Stage 4: + Proxmox LXC/VM Restart
  *
- *  Builds on Stage 2 by restarting one or more Docker containers via the
- *  Portainer API after a configurable delay whenever the public IP
- *  changes — e.g. to fix a reverse proxy (NPM) that gets stuck routing
- *  to the old outbound address after a WAN failover.
+ *  Full pipeline: polls api.ipify.org for the current public IP, detects
+ *  Primary/Failover WAN state, pushes changes to a Cloudflare DNS A record,
+ *  restarts Docker containers via Portainer, and (after a separate
+ *  configurable delay, in seconds) reboots one or more Proxmox guests
+ *  (LXC containers and/or QEMU VMs) via the Proxmox VE API — e.g. for a
+ *  standalone service (an MCP server) running in its own LXC/VM that
+ *  gets stuck on the old public IP after a WAN failover.
  *
- *  This is part 3 of a 4-part driver series:
+ *  This is the final part of a 4-part driver series:
  *    Stage 1 - WAN IP detection + Primary/Failover state
  *    Stage 2 - + Cloudflare DDNS auto-update
- *    Stage 3 (this file) - + Portainer Docker container restart
- *    Stage 4 - + Proxmox LXC/VM reboot
+ *    Stage 3 - + Portainer Docker container restart
+ *    Stage 4 (this file) - + Proxmox LXC/VM reboot
  *
  *  Attributes:
- *    - publicIP            (string)  current public IP address
- *    - wanState             (enum)    "Primary", "Failover", or "Unknown"
- *    - lastChecked          (string)  timestamp of last successful check
- *    - ddnsStatus           (string)  result of the last Cloudflare update attempt
- *    - dockerRestartStatus  (string)  result of the last Portainer restart attempt(s)
+ *    - publicIP             (string)  current public IP address
+ *    - wanState              (enum)    "Primary", "Failover", or "Unknown"
+ *    - lastChecked           (string)  timestamp of last successful check
+ *    - ddnsStatus            (string)  result of the last Cloudflare update attempt
+ *    - dockerRestartStatus   (string)  result of the last Portainer restart attempt(s)
+ *    - proxmoxRestartStatus  (string)  result of the last Proxmox LXC/VM reboot attempt(s)
  *
  *  Author: kwon2288
  *  License: Apache License 2.0
@@ -26,7 +30,7 @@
 import groovy.json.JsonOutput
 
 metadata {
-    definition(name: "Public IP WAN Monitor - Stage 3", namespace: "kwon2288", author: "kwon2288") {
+    definition(name: "Public IP WAN Monitor - Stage 4", namespace: "kwon2288", author: "kwon2288") {
         capability "Sensor"
         capability "Refresh"
 
@@ -35,10 +39,12 @@ metadata {
         attribute "lastChecked", "string"
         attribute "ddnsStatus", "string"
         attribute "dockerRestartStatus", "string"
+        attribute "proxmoxRestartStatus", "string"
 
         command "refresh"
         command "forceUpdateDns"
         command "restartDockerContainer"
+        command "restartProxmoxGuests"
     }
 
     preferences {
@@ -62,6 +68,14 @@ metadata {
         input name: "portainerEndpointId", type: "string", title: "Portainer Endpoint ID", defaultValue: "1", required: false
         input name: "portainerContainerName", type: "string", title: "재시작할 컨테이너 이름 (쉼표로 여러 개, 예: npm,mcp)", required: false
         input name: "restartDelaySeconds", type: "number", title: "IP 변경 후 재시작까지 대기 시간(초)", defaultValue: 10
+
+        input name: "enableProxmoxRestart", type: "bool", title: "IP 변경 시 Proxmox LXC/VM 재부팅", defaultValue: false
+        input name: "proxmoxHost", type: "string", title: "Proxmox 호스트 (예: https://192.168.x.x:8006)", required: false
+        input name: "proxmoxApiToken", type: "password", title: "Proxmox API Token (형식: user@realm!tokenid=secret)", required: false
+        input name: "proxmoxNode", type: "string", title: "Proxmox 노드 이름", required: false
+        input name: "proxmoxLxcIds", type: "string", title: "재부팅할 LXC VMID (쉼표로 여러 개, 예: 101,105)", required: false
+        input name: "proxmoxVmIds", type: "string", title: "재부팅할 VM(QEMU) VMID (쉼표로 여러 개, 예: 201,202)", required: false
+        input name: "proxmoxRestartDelaySeconds", type: "number", title: "IP 변경 후 Proxmox LXC/VM 재부팅까지 대기 시간 (초)", defaultValue: 10
 
         input name: "logEnable", type: "bool", title: "디버그 로그 활성화", defaultValue: false
     }
@@ -128,6 +142,12 @@ private void processIp(String currentIp) {
             Integer delaySec = (restartDelaySeconds ?: 10) as Integer
             if (logEnable) log.debug "Scheduling Docker container restart in ${delaySec}s"
             runIn(delaySec, "restartDockerContainer")
+        }
+
+        if (enableProxmoxRestart) {
+            Integer proxDelaySec = (proxmoxRestartDelaySeconds ?: 10) as Integer
+            if (logEnable) log.debug "Scheduling Proxmox LXC/VM restart in ${proxDelaySec}s"
+            runIn(proxDelaySec, "restartProxmoxGuests")
         }
     } else if (logEnable) {
         log.debug "Public IP unchanged: ${currentIp}"
@@ -262,4 +282,65 @@ def restartDockerContainer() {
     boolean anyError = results.any { it.contains("Error") }
     String summary = "${anyError ? "일부 실패" : "OK"} (${new Date().format('HH:mm:ss')}) - ${results.join(', ')}"
     sendEvent(name: "dockerRestartStatus", value: summary)
+}
+
+/**
+ * Reboots one or more Proxmox guests (LXC containers and/or QEMU VMs) via
+ * the Proxmox VE REST API. Uses API token auth
+ * (Authorization: PVEAPIToken=user@realm!tokenid=secret), which does not
+ * require a CSRF token, unlike cookie/ticket-based auth. Proxmox's default
+ * certificate is self-signed, so SSL verification is disabled for this
+ * call (ignoreSSLIssues) — keep this endpoint LAN-only.
+ *
+ * LXC and QEMU guests use different API paths (/lxc/{id}/... vs
+ * /qemu/{id}/...), so each list is processed against its own endpoint.
+ */
+def restartProxmoxGuests() {
+    if (!proxmoxHost || !proxmoxApiToken || !proxmoxNode || (!proxmoxLxcIds && !proxmoxVmIds)) {
+        log.warn "Proxmox restart is enabled but not fully configured (host/apiToken/node + at least one of lxcIds/vmIds required)"
+        sendEvent(name: "proxmoxRestartStatus", value: "Not configured")
+        return
+    }
+
+    List<String> results = []
+
+    List<String> lxcIds = (proxmoxLxcIds ?: "").split(",").collect { it.trim() }.findAll { it }
+    lxcIds.each { vmid -> results << rebootProxmoxGuest("lxc", vmid) }
+
+    List<String> vmIds = (proxmoxVmIds ?: "").split(",").collect { it.trim() }.findAll { it }
+    vmIds.each { vmid -> results << rebootProxmoxGuest("qemu", vmid) }
+
+    boolean anyError = results.any { it.contains("Error") }
+    String summary = "${anyError ? "일부 실패" : "OK"} (${new Date().format('HH:mm:ss')}) - ${results.join(', ')}"
+    sendEvent(name: "proxmoxRestartStatus", value: summary)
+}
+
+private String rebootProxmoxGuest(String guestType, String vmid) {
+    String label = "${guestType}:${vmid}"
+    String uri = "${proxmoxHost}/api2/json/nodes/${proxmoxNode}/${guestType}/${vmid}/status/reboot"
+
+    Map params = [
+        uri            : uri,
+        headers        : ["Authorization": "PVEAPIToken=${proxmoxApiToken}"],
+        body           : "",
+        timeout        : 15,
+        ignoreSSLIssues: true
+    ]
+
+    try {
+        String result = "${label}: Error"
+        httpPost(params) { resp ->
+            if (resp.status == 200) {
+                log.info "Proxmox ${guestType.toUpperCase()} ${vmid} reboot triggered"
+                result = "${label}: OK"
+            } else {
+                log.warn "Proxmox ${guestType.toUpperCase()} ${vmid} reboot returned unexpected status: ${resp.status}"
+                result = "${label}: Error ${resp.status}"
+            }
+        }
+        return result
+    } catch (Exception e) {
+        log.warn "Proxmox ${guestType.toUpperCase()} ${vmid} reboot failed: ${e.message}"
+        return "${label}: Error"
+    }
 }
