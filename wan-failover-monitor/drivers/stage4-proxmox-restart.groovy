@@ -1,27 +1,32 @@
 /**
- *  Public IP / WAN Failover Monitor — Stage 4: + Proxmox LXC/VM Restart
+ *  Public IP / WAN Failover Monitor — Stage 4: Full Pipeline
  *
- *  Full pipeline: polls api.ipify.org for the current public IP, detects
- *  Primary/Failover WAN state, pushes changes to a Cloudflare DNS A record,
- *  restarts Docker containers via Portainer, and (after a separate
- *  configurable delay, in seconds) reboots one or more Proxmox guests
- *  (LXC containers and/or QEMU VMs) via the Proxmox VE API — e.g. for a
- *  standalone service (an MCP server) running in its own LXC/VM that
- *  gets stuck on the old public IP after a WAN failover.
+ *  Polls api.ipify.org for the current public IP, detects Primary/Failover
+ *  WAN state, and automates everything that breaks when a home ISP fails
+ *  over to a CGNAT'd backup WAN (e.g. UniFi 5G/LTE backup):
  *
- *  This is the final part of a 4-part driver series:
- *    Stage 1 - WAN IP detection + Primary/Failover state
- *    Stage 2 - + Cloudflare DDNS auto-update
- *    Stage 3 - + Portainer Docker container restart
- *    Stage 4 (this file) - + Proxmox LXC/VM reboot
+ *    - Cloudflare DNS: keeps one or more hostnames pointed at the right
+ *      place — either a direct A record (or a CNAME to another DDNS-
+ *      managed domain) while on Primary, or a CNAME to a Cloudflare
+ *      Tunnel while on Failover (since cellular WANs are almost always
+ *      behind Carrier-Grade NAT, so inbound connections to the "public"
+ *      IP reported by ipify won't actually reach the router).
+ *    - Portainer: restarts one or more Docker containers (e.g. a reverse
+ *      proxy like Nginx Proxy Manager that gets stuck on the old IP).
+ *    - Proxmox VE: reboots one or more LXC containers and/or QEMU VMs
+ *      (e.g. a standalone service not managed by Docker/Portainer).
+ *    - cloudflared: starts/stops a Cloudflare Tunnel container so it's
+ *      only running while actually needed (Failover), not burning
+ *      resources or adding latency while on Primary.
  *
  *  Attributes:
  *    - publicIP             (string)  current public IP address
  *    - wanState              (enum)    "Primary", "Failover", or "Unknown"
  *    - lastChecked           (string)  timestamp of last successful check
- *    - ddnsStatus            (string)  result of the last Cloudflare update attempt
+ *    - ddnsStatus            (string)  result of the last Cloudflare update attempt(s)
  *    - dockerRestartStatus   (string)  result of the last Portainer restart attempt(s)
  *    - proxmoxRestartStatus  (string)  result of the last Proxmox LXC/VM reboot attempt(s)
+ *    - cloudflaredStatus     (string)  result of the last cloudflared start/stop attempt
  *
  *  Author: kwon2288
  *  License: Apache License 2.0
@@ -40,11 +45,14 @@ metadata {
         attribute "ddnsStatus", "string"
         attribute "dockerRestartStatus", "string"
         attribute "proxmoxRestartStatus", "string"
+        attribute "cloudflaredStatus", "string"
 
         command "refresh"
         command "forceUpdateDns"
+        command "switchCloudflareToTunnel"
         command "restartDockerContainer"
         command "restartProxmoxGuests"
+        command "toggleCloudflaredTunnel", [[name: "wanStateNow", type: "STRING", description: "'Primary' or 'Failover' — determines start vs stop"]]
     }
 
     preferences {
@@ -58,9 +66,11 @@ metadata {
 
         input name: "cloudflareApiToken", type: "password", title: "Cloudflare API Token (Zone.DNS Edit 권한)", required: false
         input name: "cloudflareZoneId", type: "string", title: "Cloudflare Zone ID", required: false
-        input name: "cloudflareRecordId", type: "string", title: "Cloudflare DNS Record ID", required: false
-        input name: "cloudflareRecordName", type: "string", title: "DNS 레코드 이름 (예: nas.yourdomain.com)", required: false
-        input name: "cloudflareProxied", type: "bool", title: "Cloudflare Proxy(주황 구름) 사용", defaultValue: false
+        input name: "cloudflareRecordId", type: "string", title: "Cloudflare DNS Record ID (쉼표로 여러 개, 이름 목록과 같은 순서로)", required: false
+        input name: "cloudflareRecordName", type: "string", title: "DNS 레코드 이름 (쉼표로 여러 개, 예: wiki.yourdomain.com,nas.yourdomain.com)", required: false
+        input name: "cloudflareProxied", type: "bool", title: "Cloudflare Proxy(주황 구름) 사용 (평소 A레코드용)", defaultValue: false
+        input name: "cloudflarePrimaryTarget", type: "string", title: "Primary 시 CNAME 대상 도메인 (예: kwonmin.com, 비워두면 대신 공인 IP로 A레코드 직접 관리)", required: false
+        input name: "cloudflareTunnelId", type: "string", title: "Cloudflare Tunnel ID (Failover 시 CNAME 전환용, Zero Trust 대시보드에서 확인)", required: false
 
         input name: "enablePortainerRestart", type: "bool", title: "IP 변경 시 Portainer 컨테이너 재시작", defaultValue: false
         input name: "portainerUrl", type: "string", title: "Portainer URL (예: http://192.168.x.x:9000)", required: false
@@ -76,6 +86,9 @@ metadata {
         input name: "proxmoxLxcIds", type: "string", title: "재부팅할 LXC VMID (쉼표로 여러 개, 예: 101,105)", required: false
         input name: "proxmoxVmIds", type: "string", title: "재부팅할 VM(QEMU) VMID (쉼표로 여러 개, 예: 201,202)", required: false
         input name: "proxmoxRestartDelaySeconds", type: "number", title: "IP 변경 후 Proxmox LXC/VM 재부팅까지 대기 시간 (초)", defaultValue: 10
+
+        input name: "enableCloudflaredToggle", type: "bool", title: "WAN 상태 전환 시 Cloudflare Tunnel(cloudflared) 자동 시작/정지", defaultValue: false
+        input name: "cloudflaredContainerName", type: "string", title: "cloudflared 컨테이너 이름 (Portainer 설정 재사용)", required: false
 
         input name: "logEnable", type: "bool", title: "디버그 로그 활성화", defaultValue: false
     }
@@ -134,10 +147,6 @@ private void processIp(String currentIp) {
         sendEvent(name: "publicIP", value: currentIp, descriptionText: "Public IP is now ${currentIp}")
         log.info "Public IP changed: ${previousIp} -> ${currentIp}"
 
-        if (enableCloudflareDdns) {
-            updateCloudflareDns(currentIp)
-        }
-
         if (enablePortainerRestart) {
             Integer delaySec = (restartDelaySeconds ?: 10) as Integer
             if (logEnable) log.debug "Scheduling Docker container restart in ${delaySec}s"
@@ -159,16 +168,50 @@ private void processIp(String currentIp) {
     if (prefix) {
         String newState = currentIp.startsWith(prefix) ? "Primary" : "Failover"
         String previousState = device.currentValue("wanState")
+        boolean stateChanged = (newState != previousState)
+        boolean knownTransition = stateChanged && (previousState == "Primary" || previousState == "Failover")
 
         sendEvent(name: "wanState", value: newState,
                   descriptionText: "WAN state is ${newState}",
-                  isStateChange: (newState != previousState))
+                  isStateChange: stateChanged)
 
-        if (newState != previousState) {
+        if (stateChanged) {
             log.info "WAN state changed: ${previousState} -> ${newState} (IP: ${currentIp})"
+
+            if (enableCloudflaredToggle && knownTransition) {
+                toggleCloudflaredTunnel(newState)
+            }
+        }
+
+        // Cloudflare DNS handling — record stays a CNAME to the tunnel for the
+        // whole time we're on Failover (regardless of further IP churn on that
+        // WAN), and only gets switched back to a direct A record once we're
+        // confirmed back on Primary. This avoids the A/CNAME conflict that
+        // happens if both are attempted on the same record name.
+        if (enableCloudflareDdns) {
+            if (newState == "Failover" && knownTransition && cloudflareTunnelId) {
+                switchCloudflareToTunnel()
+            } else if (newState != "Failover") {
+                boolean primaryIsCnameMode = cloudflarePrimaryTarget?.trim()
+                if (stateChanged && knownTransition) {
+                    // Just came back from Failover — always re-apply the Primary target
+                    updateCloudflareDns(currentIp)
+                } else if (ipChanged && !primaryIsCnameMode) {
+                    // Legacy A-record mode only: keep it current with the live IP.
+                    // CNAME mode doesn't need this — the target domain tracks its
+                    // own IP independently.
+                    updateCloudflareDns(currentIp)
+                }
+            }
         }
     } else {
         sendEvent(name: "wanState", value: "Unknown", descriptionText: "No primary WAN prefix configured")
+
+        // No prefix configured means we can't tell Primary from Failover, so
+        // fall back to the simple "always keep the A record current" behavior.
+        if (enableCloudflareDdns && ipChanged) {
+            updateCloudflareDns(currentIp)
+        }
     }
 }
 
@@ -193,19 +236,113 @@ def forceUpdateDns() {
 }
 
 private void updateCloudflareDns(String ip) {
-    if (!cloudflareApiToken || !cloudflareZoneId || !cloudflareRecordId || !cloudflareRecordName) {
-        log.warn "Cloudflare DDNS is enabled but not fully configured (token/zoneId/recordId/recordName required)"
+    String target = cloudflarePrimaryTarget?.trim()
+
+    if (target) {
+        // CNAME mode: point at the given domain (e.g. the DDNS-managed root
+        // domain), which itself tracks the current public IP independently.
+        // This means we don't need to re-run this on every IP change while
+        // on Primary — only when we transition back onto Primary from
+        // Failover (see processIp).
+        applyToAllCloudflareRecords(
+            type: "CNAME",
+            content: target,
+            proxied: (cloudflareProxied ?: false),
+            modeLabel: "CNAME->${target}"
+        )
+    } else {
+        // Legacy mode: manage a direct A record pointing at the current IP.
+        applyToAllCloudflareRecords(
+            type: "A",
+            content: ip,
+            proxied: (cloudflareProxied ?: false),
+            modeLabel: "A->${ip}"
+        )
+    }
+}
+
+/**
+ * Switches all configured DNS record(s) from a direct A record to a CNAME
+ * pointing at the Cloudflare Tunnel (<tunnelId>.cfargotunnel.com).
+ * Cloudflare requires tunnel CNAMEs to be proxied (orange cloud),
+ * regardless of the cloudflareProxied preference used for the normal
+ * A/CNAME-to-domain record.
+ */
+def switchCloudflareToTunnel() {
+    if (!cloudflareTunnelId) {
+        log.warn "Cloudflare Tunnel CNAME switch requested but cloudflareTunnelId is not set"
+        sendEvent(name: "ddnsStatus", value: "Not configured (missing tunnel ID)")
+        return
+    }
+
+    applyToAllCloudflareRecords(
+        type: "CNAME",
+        content: "${cloudflareTunnelId}.cfargotunnel.com",
+        proxied: true,
+        modeLabel: "CNAME->tunnel"
+    )
+}
+
+/**
+ * Parses the comma-separated "DNS 레코드 이름" / "Cloudflare DNS Record ID"
+ * fields into paired [name, id] entries (matched by position — the Nth
+ * name goes with the Nth ID). Logs a warning if the counts don't match,
+ * since that almost always means one field was edited without the other.
+ */
+private List<Map> getCloudflareRecordPairs() {
+    List<String> names = (cloudflareRecordName ?: "").split(",").collect { it.trim() }.findAll { it }
+    List<String> ids = (cloudflareRecordId ?: "").split(",").collect { it.trim() }.findAll { it }
+
+    if (names.size() != ids.size()) {
+        log.warn "Cloudflare record name count (${names.size()}) doesn't match record ID count (${ids.size()}) - check both fields have the same number of comma-separated entries, in the same order"
+    }
+
+    List<Map> pairs = []
+    int count = Math.min(names.size(), ids.size())
+    for (int i = 0; i < count; i++) {
+        pairs << [name: names[i], id: ids[i]]
+    }
+    return pairs
+}
+
+/**
+ * Applies the same type/content/proxied change to every configured DNS
+ * record (comma-separated name/ID pairs), sequentially. Aggregates a
+ * single summary into the ddnsStatus attribute, e.g.:
+ *   "OK, CNAME->tunnel (14:32:10) - wiki.kwonmin.com: OK, nas.kwonmin.com: OK"
+ */
+private void applyToAllCloudflareRecords(Map fields) {
+    if (!cloudflareApiToken || !cloudflareZoneId) {
+        log.warn "Cloudflare DDNS is enabled but API token/zone ID are not configured"
         sendEvent(name: "ddnsStatus", value: "Not configured")
         return
     }
 
-    String uri = "https://api.cloudflare.com/client/v4/zones/${cloudflareZoneId}/dns_records/${cloudflareRecordId}"
+    List<Map> pairs = getCloudflareRecordPairs()
+    if (pairs.isEmpty()) {
+        log.warn "Cloudflare DDNS is enabled but no valid record name/ID pairs are configured"
+        sendEvent(name: "ddnsStatus", value: "Not configured")
+        return
+    }
+
+    List<String> results = []
+    pairs.each { pair ->
+        results << patchCloudflareDnsRecord(pair.id, pair.name, fields)
+    }
+
+    boolean anyError = results.any { it.contains("Error") }
+    String summary = "${fields.modeLabel} ${anyError ? "(일부 실패)" : ""} (${new Date().format('HH:mm:ss')}) - ${results.join(', ')}"
+    sendEvent(name: "ddnsStatus", value: summary)
+}
+
+private String patchCloudflareDnsRecord(String recordId, String recordName, Map fields) {
+    String uri = "https://api.cloudflare.com/client/v4/zones/${cloudflareZoneId}/dns_records/${recordId}"
     Map body = [
-        type   : "A",
-        name   : cloudflareRecordName,
-        content: ip,
+        type   : fields.type,
+        name   : recordName,
+        content: fields.content,
         ttl    : 1,                              // 1 = "Automatic" in Cloudflare
-        proxied: (cloudflareProxied ?: false)
+        proxied: fields.proxied
     ]
 
     Map params = [
@@ -218,18 +355,20 @@ private void updateCloudflareDns(String ip) {
     ]
 
     try {
+        String result = "${recordName}: Error"
         httpPatch(params) { resp ->
             if (resp.status == 200 && resp.data?.success) {
-                log.info "Cloudflare DNS record '${cloudflareRecordName}' updated to ${ip}"
-                sendEvent(name: "ddnsStatus", value: "OK (${new Date().format('HH:mm:ss')})")
+                log.info "Cloudflare DNS record '${recordName}' updated: type=${fields.type}, content=${fields.content}"
+                result = "${recordName}: OK"
             } else {
-                log.warn "Cloudflare update returned unexpected result: ${resp.data}"
-                sendEvent(name: "ddnsStatus", value: "Error: unexpected response")
+                log.warn "Cloudflare update for '${recordName}' returned unexpected result: ${resp.data}"
+                result = "${recordName}: Error"
             }
         }
+        return result
     } catch (Exception e) {
-        log.warn "Cloudflare DNS update failed: ${e.message}"
-        sendEvent(name: "ddnsStatus", value: "Error: ${e.message}")
+        log.warn "Cloudflare DNS update for '${recordName}' failed: ${e.message}"
+        return "${recordName}: Error"
     }
 }
 
@@ -257,7 +396,7 @@ def restartDockerContainer() {
 
         Map params = [
             uri    : uri,
-            headers: ["X-API-Key": portainerApiKey, "Content-Length": "0"],
+            headers: ["X-API-Key": portainerApiKey],
             body   : "",
             timeout: 15
         ]
@@ -342,5 +481,53 @@ private String rebootProxmoxGuest(String guestType, String vmid) {
     } catch (Exception e) {
         log.warn "Proxmox ${guestType.toUpperCase()} ${vmid} reboot failed: ${e.message}"
         return "${label}: Error"
+    }
+}
+
+/**
+ * Starts or stops the cloudflared (Cloudflare Tunnel) container via the
+ * Portainer API, based on the WAN state transition. Called automatically
+ * from processIp() whenever wanState flips between Primary and Failover
+ * (not on every poll — only on an actual transition), and can also be
+ * called manually for testing by passing "Primary" or "Failover".
+ *
+ * Intent: cloudflared stays stopped while on the primary WAN (which has
+ * a real public IP and works fine with direct DDNS + port forwarding),
+ * and is started only while on the CGNAT'd 5G backup WAN (where inbound
+ * connections can't reach the router directly, so an outbound tunnel is
+ * required instead).
+ */
+def toggleCloudflaredTunnel(String wanStateNow) {
+    if (!portainerUrl || !portainerApiKey || !cloudflaredContainerName) {
+        log.warn "Cloudflare Tunnel toggle is enabled but not fully configured (portainerUrl/portainerApiKey/cloudflaredContainerName required)"
+        sendEvent(name: "cloudflaredStatus", value: "Not configured")
+        return
+    }
+
+    String action = (wanStateNow == "Failover") ? "start" : "stop"
+    String endpointId = portainerEndpointId ?: "1"
+    String uri = "${portainerUrl}/api/endpoints/${endpointId}/docker/containers/${cloudflaredContainerName}/${action}"
+
+    Map params = [
+        uri    : uri,
+        headers: ["X-API-Key": portainerApiKey],
+        body   : "",
+        timeout: 15
+    ]
+
+    try {
+        httpPost(params) { resp ->
+            // Docker Engine API returns 204 No Content on success, 304 if already in that state
+            if (resp.status == 204 || resp.status == 304 || resp.status == 200) {
+                log.info "cloudflared ${action} triggered (WAN state: ${wanStateNow})"
+                sendEvent(name: "cloudflaredStatus", value: "${action == "start" ? "Started" : "Stopped"} (${new Date().format('HH:mm:ss')})")
+            } else {
+                log.warn "cloudflared ${action} returned unexpected status: ${resp.status}"
+                sendEvent(name: "cloudflaredStatus", value: "Error: status ${resp.status}")
+            }
+        }
+    } catch (Exception e) {
+        log.warn "cloudflared ${action} failed: ${e.message}"
+        sendEvent(name: "cloudflaredStatus", value: "Error: ${e.message}")
     }
 }
