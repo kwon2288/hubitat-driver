@@ -16,17 +16,21 @@ GitHub: this repository, `wan-failover-monitor/` folder.
 
 | State | DNS record | cloudflared (tunnel) | NPM / Proxmox restarts |
 |---|---|---|---|
-| **Primary** (main line) | A record (current IP) or CNAME to another DDNS domain | Stopped | Triggered on IP change |
+| **Primary** (main line) | CNAME to another A-record domain (e.g. one already tracked by router-level DDNS) — or a direct A record, if you'd rather manage the IP yourself | Stopped | Triggered on IP change |
 | **Failover** (cellular, CGNAT) | CNAME → `<tunnelId>.cfargotunnel.com` | Running | Triggered on IP change |
 
 The hostname your services use (e.g. `wiki.example.com`) never changes
 — only what it resolves to switches automatically.
 
 Traffic paths:
-- **Primary**: client → DNS (A) → public IP → router port forward → NPM → internal service
-- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → NPM → internal service
+- **Primary**: client → DNS (A/CNAME) → public IP → router port forward → target service (directly, or via a reverse proxy like NPM)
+- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → target service (directly, or via NPM, depending on what you set as the tunnel's Service URL)
 
-NPM is the final reverse proxy in both cases; only the path to reach it changes.
+Whether NPM sits in the path or not is entirely up to how you configure
+the tunnel's Public Hostname Service field — point it at NPM if you
+want NPM's routing/TLS handling to keep applying, or point it straight
+at a service's own address (e.g. a fixed LAN IP) to bypass NPM
+entirely while on Failover.
 
 Built incrementally in four stages, each a self-contained driver you
 can install on its own:
@@ -126,6 +130,13 @@ preference field (Hubitat's text preference fields cap out around 255
 characters — only about 7 record IDs' worth — so records are stored in
 device state instead, with no practical limit).
 
+**Recommended setup**: if you already have a root domain (e.g.
+`example.com`) tracked by router-level DDNS, point managed hostnames at
+it via "Primary 시 CNAME 대상 도메인" below rather than managing a
+direct A record — one less thing this driver needs to keep in sync,
+and it only needs to act on Primary↔Failover transitions instead of
+every IP change.
+
 | Setting | Description |
 |---|---|
 | Cloudflare API Token | From "Gathering credentials" above |
@@ -185,14 +196,29 @@ docker stop cloudflared
 ```
 `--restart no` is required — with `always`, Docker immediately restarts the container every time this driver stops it.
 
-Put `cloudflared` on the same Docker network as the reverse proxy (the
-default `bridge` network doesn't support container-name DNS
-resolution):
-```bash
-docker network create npm-tunnel-net
-docker network connect npm-tunnel-net npm
-docker network connect npm-tunnel-net cloudflared
-```
+Point the tunnel's Public Hostname routes at whatever `cloudflared` can
+reach on your LAN — two approaches work:
+
+- **Container name, same Docker network**: if routing through a
+  container (e.g. a reverse proxy) by name, put `cloudflared` on the
+  same *user-defined* Docker network as that container (the default
+  `bridge` network doesn't support container-name DNS resolution):
+  ```bash
+  docker network create tunnel-net
+  docker network connect tunnel-net <target-container>
+  docker network connect tunnel-net cloudflared
+  ```
+  Service URL: `http://<container-name>:<port>`
+
+- **Direct static IP** (simpler, no network setup needed): if the
+  target service has a fixed LAN IP that doesn't change on restart —
+  e.g. a Proxmox LXC/VM's own static IP, or a container with a pinned
+  IP — just point the Service URL straight at it:
+  `http://192.168.x.x:<port>`. No shared Docker network required,
+  since `cloudflared` just needs plain LAN routing to that address.
+  Avoid using a Docker container's *internal* IP this way, though —
+  those can change on container restart, same as with any other
+  IP-hardcoded connection.
 
 In the tunnel dashboard's **호스트 이름 경로 / Public Hostname** tab, add
 a route for the *exact* hostname (no wildcards — cloudflared matches
