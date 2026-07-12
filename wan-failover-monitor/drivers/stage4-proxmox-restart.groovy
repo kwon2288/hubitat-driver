@@ -1,32 +1,23 @@
 /**
- *  Public IP / WAN Failover Monitor — Stage 4: Full Pipeline
+ *  Public IP / WAN Failover Monitor — Full Pipeline
  *
  *  Polls api.ipify.org for the current public IP, detects Primary/Failover
- *  WAN state, and automates everything that breaks when a home ISP fails
- *  over to a CGNAT'd backup WAN (e.g. UniFi 5G/LTE backup):
- *
- *    - Cloudflare DNS: keeps one or more hostnames pointed at the right
- *      place — either a direct A record (or a CNAME to another DDNS-
- *      managed domain) while on Primary, or a CNAME to a Cloudflare
- *      Tunnel while on Failover (since cellular WANs are almost always
- *      behind Carrier-Grade NAT, so inbound connections to the "public"
- *      IP reported by ipify won't actually reach the router).
- *    - Portainer: restarts one or more Docker containers (e.g. a reverse
- *      proxy like Nginx Proxy Manager that gets stuck on the old IP).
- *    - Proxmox VE: reboots one or more LXC containers and/or QEMU VMs
- *      (e.g. a standalone service not managed by Docker/Portainer).
- *    - cloudflared: starts/stops a Cloudflare Tunnel container so it's
- *      only running while actually needed (Failover), not burning
- *      resources or adding latency while on Primary.
+ *  WAN state, pushes changes to a Cloudflare DNS A record, and (after
+ *  configurable delays, in seconds) can restart:
+ *    - one or more Docker containers via the Portainer API, and/or
+ *    - one or more Proxmox guests (LXC containers and/or QEMU VMs) via
+ *      the Proxmox VE API
+ *  e.g. to fix a reverse proxy (NPM) or a standalone service (an MCP
+ *  server running in its own LXC/VM) that gets stuck on the old public IP
+ *  after a WAN failover.
  *
  *  Attributes:
  *    - publicIP             (string)  current public IP address
  *    - wanState              (enum)    "Primary", "Failover", or "Unknown"
  *    - lastChecked           (string)  timestamp of last successful check
- *    - ddnsStatus            (string)  result of the last Cloudflare update attempt(s)
+ *    - ddnsStatus            (string)  result of the last Cloudflare update attempt
  *    - dockerRestartStatus   (string)  result of the last Portainer restart attempt(s)
  *    - proxmoxRestartStatus  (string)  result of the last Proxmox LXC/VM reboot attempt(s)
- *    - cloudflaredStatus     (string)  result of the last cloudflared start/stop attempt
  *
  *  Author: kwon2288
  *  License: Apache License 2.0
@@ -46,10 +37,14 @@ metadata {
         attribute "dockerRestartStatus", "string"
         attribute "proxmoxRestartStatus", "string"
         attribute "cloudflaredStatus", "string"
+        attribute "cloudflareRecords", "string"
 
         command "refresh"
         command "forceUpdateDns"
         command "switchCloudflareToTunnel"
+        command "addCloudflareRecord", [[name: "name", type: "STRING", description: "호스트네임, 예: nas.kwonmin.com"], [name: "recordId", type: "STRING", description: "Cloudflare DNS Record ID"]]
+        command "removeCloudflareRecord", [[name: "name", type: "STRING", description: "삭제할 호스트네임"]]
+        command "listCloudflareRecords"
         command "restartDockerContainer"
         command "restartProxmoxGuests"
         command "toggleCloudflaredTunnel", [[name: "wanStateNow", type: "STRING", description: "'Primary' or 'Failover' — determines start vs stop"]]
@@ -66,8 +61,6 @@ metadata {
 
         input name: "cloudflareApiToken", type: "password", title: "Cloudflare API Token (Zone.DNS Edit 권한)", required: false
         input name: "cloudflareZoneId", type: "string", title: "Cloudflare Zone ID", required: false
-        input name: "cloudflareRecordId", type: "string", title: "Cloudflare DNS Record ID (쉼표로 여러 개, 이름 목록과 같은 순서로)", required: false
-        input name: "cloudflareRecordName", type: "string", title: "DNS 레코드 이름 (쉼표로 여러 개, 예: wiki.yourdomain.com,nas.yourdomain.com)", required: false
         input name: "cloudflareProxied", type: "bool", title: "Cloudflare Proxy(주황 구름) 사용 (평소 A레코드용)", defaultValue: false
         input name: "cloudflarePrimaryTarget", type: "string", title: "Primary 시 CNAME 대상 도메인 (예: kwonmin.com, 비워두면 대신 공인 IP로 A레코드 직접 관리)", required: false
         input name: "cloudflareTunnelId", type: "string", title: "Cloudflare Tunnel ID (Failover 시 CNAME 전환용, Zero Trust 대시보드에서 확인)", required: false
@@ -117,6 +110,7 @@ def initialize() {
     }
 
     if (logEnable) log.debug "Scheduled polling every ${interval} minute(s)"
+    refreshCloudflareRecordsAttribute()
     refresh()
 }
 
@@ -284,25 +278,49 @@ def switchCloudflareToTunnel() {
 }
 
 /**
- * Parses the comma-separated "DNS 레코드 이름" / "Cloudflare DNS Record ID"
- * fields into paired [name, id] entries (matched by position — the Nth
- * name goes with the Nth ID). Logs a warning if the counts don't match,
- * since that almost always means one field was edited without the other.
+ * Returns the list of managed DNS record name/ID pairs. Records are
+ * managed entirely via the addCloudflareRecord / removeCloudflareRecord
+ * commands (stored in device state) — no size limit, unlike a text
+ * preference field. The current list is also mirrored into the
+ * cloudflareRecords attribute so it's visible in the device's Current
+ * States without needing to check logs.
  */
 private List<Map> getCloudflareRecordPairs() {
-    List<String> names = (cloudflareRecordName ?: "").split(",").collect { it.trim() }.findAll { it }
-    List<String> ids = (cloudflareRecordId ?: "").split(",").collect { it.trim() }.findAll { it }
+    return state.cloudflareRecords ?: []
+}
 
-    if (names.size() != ids.size()) {
-        log.warn "Cloudflare record name count (${names.size()}) doesn't match record ID count (${ids.size()}) - check both fields have the same number of comma-separated entries, in the same order"
-    }
+private void refreshCloudflareRecordsAttribute() {
+    List<Map> pairs = getCloudflareRecordPairs()
+    String summary = pairs.isEmpty() ? "(없음)" : "${pairs.collect { it.name }.join(', ')} (${pairs.size()}개)"
+    sendEvent(name: "cloudflareRecords", value: summary)
+}
 
-    List<Map> pairs = []
-    int count = Math.min(names.size(), ids.size())
-    for (int i = 0; i < count; i++) {
-        pairs << [name: names[i], id: ids[i]]
+/**
+ * Adds (or updates, if the hostname already exists) a DNS record to manage.
+ */
+def addCloudflareRecord(String name, String recordId) {
+    if (!state.cloudflareRecords) state.cloudflareRecords = []
+    state.cloudflareRecords.removeAll { it.name == name }
+    state.cloudflareRecords << [name: name, id: recordId]
+    log.info "Added/updated Cloudflare record: ${name} -> ${recordId} (total managed: ${state.cloudflareRecords.size()})"
+    refreshCloudflareRecordsAttribute()
+}
+
+def removeCloudflareRecord(String name) {
+    if (!state.cloudflareRecords) {
+        log.warn "No records to remove"
+        refreshCloudflareRecordsAttribute()
+        return
     }
-    return pairs
+    state.cloudflareRecords.removeAll { it.name == name }
+    log.info "Removed Cloudflare record: ${name} (remaining: ${state.cloudflareRecords.size()})"
+    refreshCloudflareRecordsAttribute()
+}
+
+def listCloudflareRecords() {
+    refreshCloudflareRecordsAttribute()
+    List<Map> pairs = getCloudflareRecordPairs()
+    log.info "Configured Cloudflare records (${pairs.size()} total): ${pairs.collect { it.name }.join(', ')}"
 }
 
 /**
