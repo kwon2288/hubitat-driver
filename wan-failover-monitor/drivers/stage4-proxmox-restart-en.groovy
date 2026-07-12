@@ -327,7 +327,7 @@ def listCloudflareRecords() {
  * Applies the same type/content/proxied change to every configured DNS
  * record (comma-separated name/ID pairs), sequentially. Aggregates a
  * single summary into the ddnsStatus attribute, e.g.:
- *   "OK, CNAME->tunnel (14:32:10) - wiki.kwonmin.com: OK, nas.kwonmin.com: OK"
+ *   "OK, CNAME->tunnel (14:32:10) - wiki.example.com: OK, nas.example.com: OK"
  */
 private void applyToAllCloudflareRecords(Map fields) {
     if (!cloudflareApiToken || !cloudflareZoneId) {

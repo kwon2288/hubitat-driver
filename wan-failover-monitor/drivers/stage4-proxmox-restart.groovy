@@ -42,7 +42,7 @@ metadata {
         command "refresh"
         command "forceUpdateDns"
         command "switchCloudflareToTunnel"
-        command "addCloudflareRecord", [[name: "name", type: "STRING", description: "호스트네임, 예: nas.kwonmin.com"], [name: "recordId", type: "STRING", description: "Cloudflare DNS Record ID"]]
+        command "addCloudflareRecord", [[name: "name", type: "STRING", description: "호스트네임, 예: nas.example.com"], [name: "recordId", type: "STRING", description: "Cloudflare DNS Record ID"]]
         command "removeCloudflareRecord", [[name: "name", type: "STRING", description: "삭제할 호스트네임"]]
         command "listCloudflareRecords"
         command "restartDockerContainer"
@@ -62,7 +62,7 @@ metadata {
         input name: "cloudflareApiToken", type: "password", title: "Cloudflare API Token (Zone.DNS Edit 권한)", required: false
         input name: "cloudflareZoneId", type: "string", title: "Cloudflare Zone ID", required: false
         input name: "cloudflareProxied", type: "bool", title: "Cloudflare Proxy(주황 구름) 사용 (평소 A레코드용)", defaultValue: false
-        input name: "cloudflarePrimaryTarget", type: "string", title: "Primary 시 CNAME 대상 도메인 (예: kwonmin.com, 비워두면 대신 공인 IP로 A레코드 직접 관리)", required: false
+        input name: "cloudflarePrimaryTarget", type: "string", title: "Primary 시 CNAME 대상 도메인 (예: example.com, 비워두면 대신 공인 IP로 A레코드 직접 관리)", required: false
         input name: "cloudflareTunnelId", type: "string", title: "Cloudflare Tunnel ID (Failover 시 CNAME 전환용, Zero Trust 대시보드에서 확인)", required: false
 
         input name: "enablePortainerRestart", type: "bool", title: "IP 변경 시 Portainer 컨테이너 재시작", defaultValue: false
@@ -327,7 +327,7 @@ def listCloudflareRecords() {
  * Applies the same type/content/proxied change to every configured DNS
  * record (comma-separated name/ID pairs), sequentially. Aggregates a
  * single summary into the ddnsStatus attribute, e.g.:
- *   "OK, CNAME->tunnel (14:32:10) - wiki.kwonmin.com: OK, nas.kwonmin.com: OK"
+ *   "OK, CNAME->tunnel (14:32:10) - wiki.example.com: OK, nas.example.com: OK"
  */
 private void applyToAllCloudflareRecords(Map fields) {
     if (!cloudflareApiToken || !cloudflareZoneId) {
