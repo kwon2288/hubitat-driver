@@ -23,8 +23,8 @@ The hostname your services use (e.g. `wiki.example.com`) never changes
 — only what it resolves to switches automatically.
 
 Traffic paths:
-- **Primary**: client → DNS (A) → public IP → router port forward → NPM → internal service
-- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → NPM → internal service
+- **Primary**: client → DNS (CNAME) → public IP → router port forward → NPM → internal service
+- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → internal service
 
 NPM is the final reverse proxy in both cases; only the path to reach it changes.
 
