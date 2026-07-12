@@ -23,14 +23,14 @@ The hostname your services use (e.g. `wiki.example.com`) never changes
 — only what it resolves to switches automatically.
 
 Traffic paths:
-- **Primary**: client → DNS (A/CNAME) → public IP → router port forward → target service (directly, or via a reverse proxy like NPM)
-- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → target service (directly, or via NPM, depending on what you set as the tunnel's Service URL)
+- **Primary**: client → DNS (A/CNAME) → public IP → router port forward → target service (directly, or via a reverse proxy like NPM, depending on your setup)
+- **Failover**: client → DNS (CNAME) → Cloudflare edge → tunnel → cloudflared → target service directly (by its static LAN IP)
 
-Whether NPM sits in the path or not is entirely up to how you configure
-the tunnel's Public Hostname Service field — point it at NPM if you
-want NPM's routing/TLS handling to keep applying, or point it straight
-at a service's own address (e.g. a fixed LAN IP) to bypass NPM
-entirely while on Failover.
+`cloudflared` routes straight to each service's own address on
+Failover, bypassing any reverse proxy — no shared Docker network
+required, since it's plain LAN routing to a fixed IP. This keeps the
+tunnel setup simple and independent of whatever's running on the
+Primary-path side (NPM or otherwise).
 
 Built incrementally in four stages, each a self-contained driver you
 can install on its own:
@@ -196,38 +196,22 @@ docker stop cloudflared
 ```
 `--restart no` is required — with `always`, Docker immediately restarts the container every time this driver stops it.
 
-Point the tunnel's Public Hostname routes at whatever `cloudflared` can
-reach on your LAN — two approaches work:
-
-- **Container name, same Docker network**: if routing through a
-  container (e.g. a reverse proxy) by name, put `cloudflared` on the
-  same *user-defined* Docker network as that container (the default
-  `bridge` network doesn't support container-name DNS resolution):
-  ```bash
-  docker network create tunnel-net
-  docker network connect tunnel-net <target-container>
-  docker network connect tunnel-net cloudflared
-  ```
-  Service URL: `http://<container-name>:<port>`
-
-- **Direct static IP** (simpler, no network setup needed): if the
-  target service has a fixed LAN IP that doesn't change on restart —
-  e.g. a Proxmox LXC/VM's own static IP, or a container with a pinned
-  IP — just point the Service URL straight at it:
-  `http://192.168.x.x:<port>`. No shared Docker network required,
-  since `cloudflared` just needs plain LAN routing to that address.
-  Avoid using a Docker container's *internal* IP this way, though —
-  those can change on container restart, same as with any other
-  IP-hardcoded connection.
+Point the tunnel's Public Hostname routes straight at the target
+service's **fixed LAN IP** — e.g. a Proxmox LXC/VM's own static IP, or
+a container with a pinned IP — no Docker network sharing needed, since
+`cloudflared` just needs plain LAN routing to that address:
+`http://192.168.x.x:<port>`. Avoid pointing this at a Docker
+container's *internal* IP, though — that can change on container
+restart, same as with any other IP-hardcoded connection.
 
 In the tunnel dashboard's **호스트 이름 경로 / Public Hostname** tab, add
 a route for the *exact* hostname (no wildcards — cloudflared matches
 routes against the actual HTTP `Host` header, so a route for
-`example.com` won't match `wiki.example.com`), with Service
-`http://npm:80` (container name, not IP). If saving fails because a DNS
-record with that name already exists, delete the existing record first
-and let the tunnel wizard create its own — then update this driver's
-Record ID/Name fields to match. This is a one-time step per hostname;
+`example.com` won't match `wiki.example.com`), with Service set to the
+target's static IP as above. If saving fails because a DNS record with
+that name already exists, delete the existing record first and let the
+tunnel wizard create its own — then update this driver's Record
+ID/Name fields to match. This is a one-time step per hostname;
 afterward the driver reuses that record ID indefinitely.
 
 ## Commands
