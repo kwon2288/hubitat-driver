@@ -41,6 +41,8 @@ can install on its own:
 Stage 4 is the full driver, meant for day-to-day use. Stages 1-3 are
 kept as separate files for reference or partial installs.
 
+**Language variants**: [`stage4-proxmox-restart.groovy`](drivers/stage4-proxmox-restart.groovy) has Korean preference labels/log messages; [`stage4-proxmox-restart-en.groovy`](drivers/stage4-proxmox-restart-en.groovy) is functionally identical with English labels. Both register under different device names (`Public IP WAN Monitor - Stage 4` vs `Public IP WAN Monitor (EN)`), so you can install either — or both, on separate test devices — without conflict.
+
 Also included, as an independent hub-agnostic safety net (not required
 once Stage 4 is working):
 
