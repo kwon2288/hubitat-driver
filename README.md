@@ -10,6 +10,7 @@ project folder is self-contained with its own README, driver code, and
 |---|---|
 | [`wan-failover-monitor/`](wan-failover-monitor/) | Detects a UniFi 5G/LTE WAN failover via public IP polling, auto-updates Cloudflare DDNS, and restarts affected Docker containers (via Portainer) / Proxmox LXCs (via Proxmox VE API) |
 | [`awair-omni-local/`](awair-omni-local/) | Polls an Awair Omni air quality monitor's local API for temperature, humidity, CO2, VOC, PM2.5, lux, noise, and a locally-calculated EPA AQI. Canonical repo/HPM package remains [`Hubitat-AwAir`](https://github.com/kwon2288/Hubitat-AwAir); this copy is kept here for browsing convenience only. |
+| [`samsung-soundbar-local/`](samsung-soundbar-local/) | Local (LAN-only) control of 2024+ Samsung Wi-Fi soundbars over the local JSON-RPC API on TCP 1516 — power, volume, mute, input source, sound mode, subwoofer. Protocol reverse-engineered by [ZtF](https://github.com/ZtF/hass-samsung-soundbar-local) for Home Assistant; ported here as a native Hubitat driver. |
 
 More drivers will be added here over time — see each project's own
 `README.md` for installation and configuration details specific to that
