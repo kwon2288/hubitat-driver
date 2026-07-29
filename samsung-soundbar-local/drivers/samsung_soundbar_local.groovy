@@ -41,7 +41,7 @@ metadata {
         name: "Samsung Soundbar Local",
         namespace: "kwon2288",
         author: "권민",
-        importUrl: "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/samsung-soundbar-local/samsung_soundbar_local.groovy"
+        importUrl: "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/samsung-soundbar-local/drivers/samsung_soundbar_local.groovy"
     ) {
         capability "Initialize"
         capability "Refresh"
@@ -63,9 +63,12 @@ metadata {
 
     preferences {
         input name: "ipAddress", type: "text", title: "Soundbar IP address", required: true
-        input name: "pollIntervalMin", type: "enum", title: "Auto-refresh interval",
-              options: ["0": "Disabled", "1": "Every 1 minute", "5": "Every 5 minutes", "10": "Every 10 minutes", "30": "Every 30 minutes"],
-              defaultValue: "5"
+        input name: "powerPollSec", type: "enum", title: "Power state check interval (fast - 1 RPC call, for prompt on/off detection)",
+              options: ["0": "Disabled", "10": "Every 10 seconds", "15": "Every 15 seconds", "30": "Every 30 seconds", "60": "Every 1 minute"],
+              defaultValue: "15"
+        input name: "fullRefreshMin", type: "enum", title: "Full status refresh interval (volume/input/sound mode/codec)",
+              options: ["0": "Disabled", "5": "Every 5 minutes", "10": "Every 10 minutes", "30": "Every 30 minutes"],
+              defaultValue: "10"
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
         input name: "txtEnable", type: "bool", title: "Enable descriptive text logging", defaultValue: true
     }
@@ -89,12 +92,29 @@ def updated() {
 }
 
 def initialize() {
-    unschedule(refresh)
-    Integer mins = (pollIntervalMin ?: "5") as Integer
-    if (mins > 0) {
-        schedule("0 0/${mins} * * * ?", refresh)
-    }
+    unschedule()
+    startPowerPolling()
+    Integer fullMin = (fullRefreshMin ?: "10") as Integer
+    if (fullMin > 0) schedule("0 0/${fullMin} * * * ?", refresh)
     runIn(2, refresh)
+}
+
+// Self-rescheduling loop so sub-minute intervals work (Hubitat's cron
+// scheduler is minute-granular; this soundbar API has no push/webhook
+// mechanism, so this is the only way to catch an external power-on quickly).
+def startPowerPolling() {
+    Integer sec = (powerPollSec ?: "15") as Integer
+    if (sec > 0) runIn(sec, "powerPoll")
+}
+
+def powerPoll() {
+    String before = device.currentValue("switch")
+    getPowerState()
+    if (device.currentValue("switch") != before) {
+        if (txtEnable) log.info "${device.displayName}: power state changed to '${device.currentValue('switch')}' - pulling full status"
+        runIn(1, refresh)
+    }
+    startPowerPolling()
 }
 
 def logsOff() {
