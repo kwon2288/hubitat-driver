@@ -288,19 +288,35 @@ private Map rpcCall(String method, Map params = [:], boolean allowRetry = true) 
 
     try {
         Map result = null
+        Map errInfo = null
         httpPost(reqParams) { resp ->
             def data = resp?.data
             if (logEnable) log.debug "${device.displayName}: ${method} -> ${data}"
-            if (data?.error) throw new Exception("soundbar returned error: ${data.error}")
-            result = data?.result
+            if (data instanceof Map) {
+                if (data.error) {
+                    // standard JSON-RPC shape: {"error":{"code":...,"message":...}}
+                    errInfo = (data.error instanceof Map) ? data.error : [message: data.error.toString()]
+                } else if (data.code != null && data.result == null) {
+                    // this soundbar's firmware sometimes returns a bare
+                    // {"code":...,"message":...} with no "error" wrapper
+                    errInfo = data
+                } else {
+                    result = data.result
+                }
+            }
         }
+        if (errInfo) throw new Exception("soundbar error ${errInfo.code}: ${errInfo.message}")
         sendEvent(name: "commStatus", value: "online")
         return result
     } catch (Exception e) {
         String msg = e.message ?: e.toString()
         if (logEnable) log.debug "${device.displayName}: ${method} failed: ${msg}"
-        boolean looksLikeAuthError = (msg =~ /(?i)(token|auth|unauthor|forbidden|401|403)/)
-        if (allowRetry && method != "createAccessToken" && looksLikeAuthError) {
+        // A stale/invalidated AccessToken (e.g. after the soundbar reboots or
+        // re-pairs with the SmartThings app) can show up as a proper auth
+        // error OR - on this firmware - as a generic "Parse error" (-32700).
+        // Treat both as "token is bad, get a new one and retry once".
+        boolean looksLikeBadToken = (msg =~ /(?i)(token|auth|unauthor|forbidden|401|403|parse error|-32700)/)
+        if (allowRetry && method != "createAccessToken" && looksLikeBadToken) {
             state.remove("accessToken")
             return rpcCall(method, params, false)
         }
