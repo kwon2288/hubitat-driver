@@ -1,5 +1,7 @@
 # WAN Failover Monitor
 
+*[한국어](README.ko.md)*
+
 Hubitat Elevation driver that detects a home ISP failover (e.g. a UniFi
 5G/LTE backup WAN taking over from the main line) by polling the
 router's public IP, and automates everything that a WAN change usually
