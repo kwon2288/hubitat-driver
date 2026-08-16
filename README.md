@@ -13,6 +13,7 @@ Hubitat Elevation용 커스텀 드라이버 모음입니다. 프로젝트별로 
 | `wan-failover-monitor/` | 공인 IP 폴링으로 UniFi 5G/LTE WAN 페일오버를 감지하고, Cloudflare DDNS를 자동 갱신하며, 영향받은 Docker 컨테이너(Portainer 경유)/Proxmox LXC(Proxmox VE API 경유)를 재시작합니다 |
 | `awair-omni-local/` | Awair Omni 공기질 모니터의 로컬 API를 폴링해 온도, 습도, CO2, VOC, PM2.5, 조도, 소음, 그리고 로컬에서 계산한 EPA AQI를 가져옵니다. 정식 저장소/HPM 패키지는 `Hubitat-AwAir`이며, 여기 있는 사본은 둘러보기 편의용으로만 유지합니다. |
 | `samsung-soundbar-local/` | 2024년 이후 삼성 Wi-Fi 사운드바를 TCP 1516의 로컬 JSON-RPC API로 로컬(LAN 전용) 제어합니다 — 전원, 볼륨, 음소거, 입력 소스, 사운드 모드, 서브우퍼. 프로토콜은 ZtF가 Home Assistant용으로 리버스 엔지니어링한 것을 네이티브 Hubitat 드라이버로 포팅했습니다. |
+| `navien-mate/` | 나비엔 스마트 숙면매트(단계형/1.0L, EME-500 등)를 실시간 상태 반영과 함께 연동합니다. Hubitat MQTT 클라이언트가 WebSocket을 지원하지 않고 나비엔 계정은 세션이 1개뿐이라, 별도 Docker 브리지(`bridge/`)가 AWS IoT SigV4 WebSocket 구독과 나비엔 로그인 세션을 전담하고 드라이버는 로컬 MQTT+HTTP로만 통신합니다. |
 
 드라이버는 계속 추가될 예정입니다 — 설치·설정에 관한 프로젝트별 상세 내용은 각
 프로젝트 자체의 `README.md`를 참고하세요.
