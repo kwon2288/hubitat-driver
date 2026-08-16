@@ -1,0 +1,17 @@
+services:
+  navien-bridge:
+    build: .
+    container_name: navien-bridge
+    restart: unless-stopped
+    environment:
+      NAVIEN_USERNAME: "${NAVIEN_USERNAME}"
+      NAVIEN_PASSWORD: "${NAVIEN_PASSWORD}"
+      MQTT_HOST: "${MQTT_HOST}"
+      MQTT_PORT: "${MQTT_PORT:-1883}"
+      MQTT_USERNAME: "${MQTT_USERNAME:-}"
+      MQTT_PASSWORD: "${MQTT_PASSWORD:-}"
+      MQTT_PREFIX: "${MQTT_PREFIX:-navien}"
+      HTTP_PORT: "8099"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    ports:
+      - "8099:8099"
