@@ -1,167 +1,237 @@
 # Navien Smart 숙면매트 → Hubitat
 
-Bring the Navien Smart sleep mat (숙면매트, step-type / 1.0L models such as the
-EME-500) into Hubitat Elevation, with real-time state updates.
+[English README](README.en.md)
 
-Navien's cloud has no REST endpoint that returns live device state — the only
-way to read current heater level/power is to subscribe to the AWS IoT Core
-shadow over a SigV4-signed WebSocket. Hubitat's built-in `interfaces.mqtt`
-client does not support WebSocket transport, so this project splits the work
-across two pieces:
+나비엔 스마트 숙면매트(단계형/1.0L, EME-500 등)를 실시간 상태 반영과 함께
+Hubitat Elevation에 연동합니다.
 
-- **`bridge/`** — a small Python/Docker service that owns the Navien cloud
-  session, subscribes to AWS IoT over WebSocket, and republishes device state
-  to a plain MQTT broker.
-- **`drivers/navien-smart-mat.groovy`** — a Hubitat driver that subscribes to
-  that broker for state, and sends commands through the bridge's local HTTP
-  API (never talks to Navien's cloud directly).
+나비엔 클라우드에는 현재 상태(난방 단계·전원)를 읽는 REST 엔드포인트가 없습니다
+— 유일한 방법은 AWS IoT Core shadow를 SigV4 서명 WebSocket으로 구독하는 것뿐입니다.
+Hubitat 내장 `interfaces.mqtt`는 WebSocket 전송을 지원하지 않기 때문에, 이 프로젝트는
+작업을 두 부분으로 나눕니다.
 
-## Why a bridge instead of a driver-only solution
+- **`bridge/`** — 나비엔 클라우드 세션을 소유하고, AWS IoT를 WebSocket으로 구독해서
+  일반 MQTT 브로커로 상태를 재발행하는 작은 Python/Docker 서비스.
+- **`drivers/navien-smart-mat.groovy`** — 그 브로커를 구독해 상태를 받고, 명령은
+  브리지의 로컬 HTTP API로 보내는 Hubitat 드라이버(나비엔 클라우드에 직접 접속하지 않음).
 
-1. **Hubitat's MQTT client is TCP/TLS only.** There's no `wss://` support, so
-   a Groovy driver alone cannot subscribe to AWS IoT Core.
-2. **The account allows exactly one login session.** If both the bridge and
-   the Hubitat driver logged in independently, they would keep kicking each
-   other out (`code: 404` from Navien). The bridge is the single owner of the
-   session; the driver never authenticates against Navien directly.
+## 왜 드라이버 하나로 끝내지 않았는가
 
-## Architecture
+1. **Hubitat MQTT 클라이언트는 TCP/TLS 전용입니다.** `wss://`를 지원하지 않아서
+   Groovy 드라이버 혼자서는 AWS IoT Core를 구독할 수 없습니다.
+2. **계정당 로그인 세션이 정확히 1개입니다.** 브리지와 Hubitat 드라이버가 각자
+   로그인하면 서로 세션을 뺏습니다(나비엔 쪽 `code: 404`). 그래서 브리지가 세션의
+   유일한 소유자이고, 드라이버는 나비엔에 직접 인증하지 않습니다.
+
+## 아키텍처
 
 ```
-Navien Cloud (AWS IoT + REST)
-   ▲  SigV4-signed WSS subscribe + REST login/control  (single session — bridge only)
+나비엔 클라우드 (AWS IoT + REST)
+   ▲  SigV4 서명 WSS 구독 + REST 로그인/제어  (세션 1개 — 브리지만 보유)
    │
-Bridge (Docker, Python)
-   ├─ owns login/session refresh
-   ├─ subscribes to AWS IoT, republishes `reported` state to a local broker
-   └─ exposes a local HTTP API for control
+브리지 (Docker, Python)
+   ├─ 로그인/세션 갱신 소유
+   ├─ AWS IoT 구독 → reported 상태를 로컬 브로커에 재발행
+   └─ 로컬 HTTP API로 제어 요청 노출
    │                                  │
-   │ state (MQTT, retained)           │ control (HTTP)
+   │ 상태 (MQTT, retained)            │ 제어 (HTTP)
    ▼                                  ▼
-Local MQTT broker                bridge relays to Navien REST
-(Hubitat's built-in broker,
- or any external broker)
+로컬 MQTT 브로커                  브리지가 나비엔 REST로 중계
+(Hubitat 내장 브로커 또는
+ 외부 브로커 무관)
    │
    ▼
-Hubitat driver
-   ├─ interfaces.mqtt subscribes to the local broker → live state
-   └─ on()/off()/setHeatLevel() → bridge's local HTTP (never Navien directly)
+Hubitat 드라이버
+   ├─ interfaces.mqtt 로 로컬 브로커 구독 → 실시간 상태
+   └─ on()/off()/setHeatLevel() → 브리지 로컬 HTTP (나비엔 클라우드 직접 호출 안 함)
 ```
 
-## Requirements
+## 요구사항
 
-- A Docker host reachable from your Hubitat hub (Proxmox/Portainer, Synology,
-  etc.)
-- An MQTT broker reachable from both the bridge and the hub. Two options:
-  - Hubitat's own built-in broker: Integrations → Add Built-In Integration →
-    "MQTT Import Integration" (or Export) → enable **"Use built-in MQTT
-    service"**. You only need the broker it starts — you do not need to use
-    its device-mapping UI (see Limitations).
-  - Any external broker (e.g. `eclipse-mosquitto`).
-- A Navien Smart account with a registered step-type (1.0L) sleep mat.
+- Hubitat 허브에서 접근 가능한 Docker 호스트 (Proxmox/Portainer, Synology 등)
+- 브리지와 허브 양쪽에서 접근 가능한 MQTT 브로커. 둘 중 하나:
+  - Hubitat 내장 브로커: Integrations → Add Built-In Integration →
+    "MQTT Import Integration"(또는 Export) 추가 → **"Use built-in MQTT
+    service"** 활성화. 브로커 데몬만 필요하고, 기기 매핑 UI는 쓰지 않습니다
+    (제한사항 참고).
+  - 외부 브로커 (예: `eclipse-mosquitto`).
+- 단계형(1.0L) 숙면매트가 등록된 나비엔 스마트 계정.
 
-## Installation
+## 설치
 
-### 1. Bridge
+### 1. 브리지
+
+Docker 호스트(Proxmox VM/LXC, Synology 등 — Hubitat 허브와 네트워크로 통신
+가능해야 함)에서 진행합니다.
+
+**사전 준비** — Docker와 Compose 플러그인이 있는지 먼저 확인하세요.
 
 ```bash
-cd bridge
+docker --version
+docker compose version
+```
+
+둘 중 하나라도 안 나오면 먼저 설치부터 하세요 (Portainer로 관리 중이면 이
+단계는 이미 되어 있을 겁니다).
+
+**코드 받기** — 저장소를 클론합니다.
+
+```bash
+git clone https://github.com/kwon2288/hubitat-driver.git
+cd hubitat-driver/navien-mate/bridge
+```
+
+저장소 전체(다른 프로젝트 포함) 대신 이 프로젝트만 받고 싶으면 sparse
+checkout을 쓸 수 있습니다:
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/kwon2288/hubitat-driver.git
+cd hubitat-driver
+git sparse-checkout set navien-mate
+cd navien-mate/bridge
+```
+
+**설정**
+
+```bash
 cp .env.example .env
-# edit .env: NAVIEN_USERNAME/PASSWORD, MQTT_HOST/PORT/USERNAME/PASSWORD
+vi .env   # 원하는 편집기로
+```
+
+최소한 채워야 하는 값:
+
+- `NAVIEN_USERNAME` / `NAVIEN_PASSWORD` — 나비엔 스마트 계정
+- `MQTT_HOST` — Hubitat 내장 브로커 또는 외부 브로커의 IP
+- 브로커에 계정이 걸려 있다면 `MQTT_USERNAME` / `MQTT_PASSWORD`
+
+나머지(`MQTT_PORT`, `MQTT_PREFIX`, `HTTP_PORT`, `LOG_LEVEL`)는 기본값 그대로
+둬도 됩니다 — 각 값의 의미는 아래 "설정 값 정리" 표 참고.
+
+**기동**
+
+```bash
 docker compose up -d --build
 docker logs -f navien-bridge
 ```
 
-You should see `로그인 성공 userSeq=... homeSeq=...` followed by
-`MQTT 구독 시작: <homeSeq>/mate/#`. Verify device discovery:
+아래 순서로 로그가 뜨면 정상입니다:
 
-```bash
-curl http://<bridge-host>:8099/devices
+```
+로그인 성공 userSeq=... homeSeq=...
+HTTP API 기동: 0.0.0.0:8099
+MQTT 구독 시작: <homeSeq>/mate/#
 ```
 
-### 2. Hubitat driver
+**정상 동작 확인**
 
-1. **Drivers Code** → **New Driver** → paste `drivers/navien-smart-mat.groovy`
-   → **Save**.
-2. **Devices** → **Add Device** → **Virtual** → select the new driver type.
-3. In **Preferences**, set the bridge host/port and the MQTT broker
-   host/port/credentials → **Save Preferences**. This triggers
-   `initialize()`, which discovers the device from the bridge and connects to
-   MQTT.
+```bash
+curl http://<브리지-호스트>:8099/health
+curl http://<브리지-호스트>:8099/devices
+```
 
-## Configuration reference
+`/devices`에서 매트 정보(`deviceId`, `zones`, `rangeMin`/`rangeMax` 등)가
+나오면 정상입니다.
 
-### Bridge environment variables (`bridge/.env`)
+**업데이트** (코드가 바뀐 뒤 다시 반영할 때)
 
-| Variable | Default | Description |
+```bash
+cd hubitat-driver/navien-mate/bridge
+git pull
+docker compose up -d --build
+```
+
+`requirements.txt`(의존성)까지 바뀐 걸 확실히 반영하려면 캐시 없이
+다시 빌드하세요:
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
+**자주 쓰는 운영 명령**
+
+```bash
+docker compose logs -f navien-bridge   # 로그 보기
+docker compose restart navien-bridge   # 코드 변경 없이 재시작
+docker compose down                    # 중지 + 컨테이너 제거
+docker compose up -d                   # 다시 기동
+```
+
+### 2. Hubitat 드라이버
+
+1. **Drivers Code** → **New Driver** → `drivers/navien-smart-mat.groovy` 내용
+   붙여넣기 → **Save**.
+2. **Devices** → **Add Device** → **Virtual** → 새로 만든 드라이버 타입 선택.
+3. **Preferences**에 브리지 호스트/포트, MQTT 브로커 호스트/포트/계정 입력 →
+   **Save Preferences**. 저장 시 `initialize()`가 자동 실행되어 브리지에서 기기
+   정보를 가져오고 MQTT에 접속합니다.
+
+## 설정 값 정리
+
+### 브리지 환경변수 (`bridge/.env`)
+
+| 변수 | 기본값 | 설명 |
 |---|---|---|
-| `NAVIEN_USERNAME` / `NAVIEN_PASSWORD` | — | Navien Smart account credentials (required) |
-| `MQTT_HOST` / `MQTT_PORT` | `127.0.0.1` / `1883` | Local broker the bridge publishes to |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | — | Broker credentials, if any |
-| `MQTT_PREFIX` | `navien` | Topic prefix; must match the driver's `mqttPrefix` |
-| `HTTP_PORT` | `8099` | Local control API port |
-| `LOG_LEVEL` | `INFO` | Python logging level |
+| `NAVIEN_USERNAME` / `NAVIEN_PASSWORD` | — | 나비엔 스마트 계정 (필수) |
+| `MQTT_HOST` / `MQTT_PORT` | `127.0.0.1` / `1883` | 브리지가 발행할 로컬 브로커 |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | — | 브로커 계정(있는 경우) |
+| `MQTT_PREFIX` | `navien` | 토픽 프리픽스 — 드라이버의 `mqttPrefix`와 일치해야 함 |
+| `HTTP_PORT` | `8099` | 로컬 제어 API 포트 |
+| `LOG_LEVEL` | `INFO` | 파이썬 로그 레벨 |
 
-### Driver preferences
+### 드라이버 Preferences
 
-| Preference | Description |
+| 항목 | 설명 |
 |---|---|
-| `bridgeHost` / `bridgePort` | Bridge's HTTP API address |
-| `mqttHost` / `mqttPort` | Broker address the driver subscribes to |
-| `mqttUsername` / `mqttPassword` | Broker credentials, if any |
-| `mqttPrefix` | Must match the bridge's `MQTT_PREFIX` |
+| `bridgeHost` / `bridgePort` | 브리지 HTTP API 주소 |
+| `mqttHost` / `mqttPort` | 드라이버가 구독할 브로커 주소 |
+| `mqttUsername` / `mqttPassword` | 브로커 계정(있는 경우) |
+| `mqttPrefix` | 브리지의 `MQTT_PREFIX`와 일치해야 함 |
 
-## Usage
+## 사용법
 
-- `on()` / `off()` — whole-mat power (`operationMode`). On a two-zone
-  (left/right) mat this is shared between zones, matching the physical mat.
-- `setHeatLevel(zone, level)` — `zone` is `single`, `left`, or `right`
-  (whichever your mat reports); `level` is `0`–`8` (`0` = standby).
-- `single_level` / `left_level` / `right_level` and their `*_levelLabel`
-  counterparts reflect the **actual** device-reported state once MQTT
-  messages arrive — not just the last command sent.
-- `refresh()` re-fetches device registry info from the bridge.
+- `on()` / `off()` — 매트 전체 전원(`operationMode`). 좌우분리 매트에서는 두
+  구역이 전원을 공유합니다(실제 기기와 동일).
+- `setHeatLevel(zone, level)` — `zone`은 `single`/`left`/`right` 중 해당 매트가
+  가진 것, `level`은 `0`~`8` (`0`=운전 대기).
+- `single_level`/`left_level`/`right_level`과 `*_levelLabel`은 MQTT 메시지가
+  도착하면 **실제 기기 상태**로 갱신됩니다 — 마지막으로 보낸 명령이 아니라.
+- `refresh()` — 브리지에서 기기 등록정보를 다시 받아옵니다.
 
-## Limitations (v1)
+## 제한사항 (v1)
 
-- Step-type (1.0L) mats only — temperature-type (0.5C) mats and four-season
-  cooling are not implemented, matching the reference Home Assistant
-  integration's own scope (untested on real hardware there too).
-- Only the first mat on the account is used if more than one is registered.
-- Hubitat's built-in **MQTT Import Integration** device-mapping UI is not
-  used — as of testing, its attribute mapping is inconsistent for anything
-  beyond a handful of built-in capability templates. This project only uses
-  the broker daemon it can optionally provide; all topic parsing happens in
-  the driver's own `parse()`.
+- 단계형(1.0L) 매트만 지원 — 온도형(0.5C)과 사계절 냉방은 미구현입니다. 원본
+  Home Assistant 통합도 실기기 검증이 안 돼 있어 같은 범위로 맞췄습니다.
+- 계정에 매트가 여러 대면 첫 번째 기기만 씁니다.
+- Hubitat 내장 **MQTT Import Integration**의 기기 매핑 UI는 사용하지 않습니다 —
+  테스트해본 결과 내장 캐패빌리티 템플릿 몇 개를 벗어나면 속성 매핑이 안정적이지
+  않았습니다. 이 프로젝트는 그 앱이 제공하는 브로커 데몬만 빌려 쓰고, 토픽 파싱은
+  전부 드라이버 자체 `parse()`에서 처리합니다.
 
-## Troubleshooting
+## 트러블슈팅
 
 - **`WebsocketConnectionError: WebSocket handshake error, connection not
-  upgraded`** — `paho-mqtt` versions before 2.0 append the port to the
-  WebSocket `Host:` header even on the default port, which breaks AWS IoT's
-  SigV4 signature check. Make sure `bridge/requirements.txt` pins
-  `paho-mqtt>=2.1`.
-- **Bridge keeps re-logging in / Hubitat control fails intermittently** — the
-  Navien account allows one session at a time. Make sure nothing else (a
-  second bridge instance, a stray Hubitat v1-style driver with its own
-  login) is authenticating with the same credentials.
-- **`single_level`/`left_level`/`right_level` never update** — confirm the
-  bridge log shows `상태 수신: <deviceId> heater=...` and that
-  `navien/mate/<deviceId>/state` actually has a retained message on your
-  broker (`mosquitto_sub -t 'navien/#' -v`).
+  upgraded`** — 2.0 이전 `paho-mqtt`는 기본 포트여도 WebSocket `Host:` 헤더에
+  포트를 붙이는데, 이게 AWS IoT SigV4 서명 검증을 깹니다. `bridge/requirements.txt`가
+  `paho-mqtt>=2.1`로 고정돼 있는지 확인하세요.
+- **브리지가 계속 재로그인하거나 Hubitat 제어가 간헐적으로 실패** — 나비엔 계정은
+  세션이 1개뿐입니다. 같은 계정으로 인증하는 다른 프로세스(브리지 중복 실행,
+  자체 로그인하는 v1 방식 드라이버 등)가 없는지 확인하세요.
+- **`single_level`/`left_level`/`right_level`이 안 바뀜** — 브리지 로그에
+  `상태 수신: <deviceId> heater=...`가 찍히는지, 브로커에
+  `navien/mate/<deviceId>/state`에 retained 메시지가 실제로 있는지 확인하세요
+  (`mosquitto_sub -t 'navien/#' -v`).
 
-## Credits
+## 참고
 
-Protocol reverse-engineered from
-[ripe-avocado/navien_smart_ha](https://github.com/ripe-avocado/navien_smart_ha)
-(MIT License, © 2026 Eui Young Jung) — the REST auth flow, shadow control
-payload shape, and the AWS SigV4 WebSocket signing steps in `bridge/app.py`
-are ported from that project's `api.py`/`mqtt.py`.
+프로토콜은 [ripe-avocado/navien_smart_ha](https://github.com/ripe-avocado/navien_smart_ha)
+(MIT License, © 2026 Eui Young Jung)를 리버스 엔지니어링해서 확인했습니다.
+`bridge/app.py`의 REST 인증 흐름, shadow 제어 payload 구조, AWS SigV4 WebSocket
+서명 로직은 해당 프로젝트의 `api.py`/`mqtt.py`를 포팅한 것입니다.
 
-## License
+## 라이선스
 
-Apache License 2.0 — see [LICENSE](LICENSE). (Omit this file if your repo
-already carries a top-level Apache 2.0 LICENSE that covers all projects.)
-`bridge/app.py` incorporates logic ported from the MIT-licensed project
-credited above; the MIT notice is preserved here per its terms.
-
+Apache License 2.0 — [LICENSE](LICENSE) 참고. (저장소 최상위에 이미 Apache 2.0
+LICENSE가 있어 전체 프로젝트를 커버한다면 이 파일은 생략해도 됩니다.) `bridge/app.py`는
+위에서 밝힌 MIT 라이선스 프로젝트의 로직을 포팅해 포함하고 있으며, 그 조건에 따라 MIT
+표기를 여기 남깁니다.
