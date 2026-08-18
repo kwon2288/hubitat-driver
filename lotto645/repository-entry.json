@@ -1,0 +1,7 @@
+{
+  "name": "Lotto 645 Winning Numbers",
+  "category": "Integrations",
+  "location": "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/lotto645/packageManifest.json",
+  "description": "Fetches Korean Lotto 6/45 winning numbers from Dhlottery every Saturday and checks them against your own numbers.",
+  "tags": ["Integrations", "Notifications"]
+}

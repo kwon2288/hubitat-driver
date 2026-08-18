@@ -1,0 +1,21 @@
+{
+  "packageName": "Lotto 645 Winning Numbers",
+  "author": "kwon2288",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.2.8",
+  "dateReleased": "2026-08-18",
+  "releaseNotes": "Initial release.",
+  "documentationLink": "https://github.com/kwon2288/hubitat-driver/blob/main/lotto645/README.md",
+  "communityLink": "https://github.com/kwon2288/hubitat-driver",
+  "drivers": [
+    {
+      "id": "2ac4bfc8-4a3d-402c-ae10-4629efcca9f0",
+      "name": "Lotto 645 Winning Numbers",
+      "namespace": "kwon2288",
+      "location": "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/lotto645/lotto-645-driver.groovy",
+      "required": true,
+      "version": "1.0.0",
+      "primary": true
+    }
+  ]
+}
