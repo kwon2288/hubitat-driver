@@ -17,7 +17,7 @@ metadata {
     definition(name: "Lotto 645 Winning Numbers",
                namespace: "kwon2288",
                author: "kwon2288",
-               importUrl: "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/dhlottery-lotto645/drivers/lotto-645-driver.groovy") {
+               importUrl: "https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/lotto645/lotto-645-driver.groovy") {
 
         capability "Refresh"
         capability "Sensor"

@@ -1,4 +1,4 @@
-# Hubitat Lotto 6/45 Winning Numbers
+# 로또 6/45 당첨번호 (동행복권)
 
 동행복권 로또 6/45 당첨번호를 자동으로 가져오는 [Hubitat Elevation](https://hubitat.com) 커스텀 드라이버입니다.
 매주 토요일 추첨 직후 자동으로 최신 회차를 조회하고, 등록해 둔 내 번호와 대조해 등수까지 판정합니다.
@@ -28,17 +28,6 @@
 
 ## 설치
 
-### Hubitat Package Manager (권장)
-
-HPM → *Install* → *Search by Keywords* → `Lotto` 검색.
-목록에 없으면 *Import a Package from a URL* 에 아래 주소를 입력합니다.
-
-```
-https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/lotto645/packageManifest.json
-```
-
-### 수동 설치
-
 1. Hubitat 관리자 → **Drivers Code** → **New Driver** → **Import**
 2. 아래 주소 입력 후 Import → Save
    ```
@@ -46,6 +35,8 @@ https://raw.githubusercontent.com/kwon2288/hubitat-driver/main/lotto645/packageM
    ```
 3. **Devices** → **Add Device** → **Virtual** → Type 에서 `Lotto 645 Winning Numbers` 선택
 4. 디바이스 페이지에서 필요 시 내 번호를 입력하고 **Save Preferences**
+
+드라이버에 `importUrl`이 포함되어 있어, 이후 업데이트는 Drivers Code 화면에서 Import 버튼만 누르면 최신 코드를 받아올 수 있습니다.
 
 ## 설정
 
@@ -69,4 +60,4 @@ GET https://www.dhlottery.co.kr/lt645/selectPstLt645InfoNew.do?srchLtEpsd={회�
 
 ## 라이선스
 
-저장소 루트의 LICENSE 를 따릅니다.
+저장소 루트의 [LICENSE](../LICENSE) (Apache License 2.0) 를 따릅니다.
