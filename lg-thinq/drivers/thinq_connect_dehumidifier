@@ -1,0 +1,291 @@
+/**
+ *  ThinQ Connect Dehumidifier
+ *  Based on jonozzz hubitat-thinqconnect framework (thinq_connect_core.groovy)
+ *
+ *  API Spec:
+ *  - operation.dehumidifierOperationMode (read/write)
+ *      POWER_ON | POWER_OFF
+ *
+ *  - dehumidifierJobMode.currentJobMode (read only per spec, but may work on some models)
+ *      RAPID_HUMIDITY | CLOTHES_DRY | AIR_CLEAN |
+ *      QUIET_HUMIDITY | SMART_HUMIDITY | INTENSIVE_DRY
+ *
+ *  - airFlow.windStrength (read/write)
+ *      HIGH | LOW
+ *
+ *  - humidity.currentHumidity (read only, range 0-100)
+ *
+ *  - notification push
+ *      WATER_IS_FULL
+ */
+
+import groovy.transform.Field
+import groovy.json.JsonSlurper
+
+@Field List<String> LOG_LEVELS = ["error", "warn", "info", "debug", "trace"]
+@Field String DEFAULT_LOG_LEVEL = LOG_LEVELS[2]
+
+metadata {
+    definition(name: "ThinQ Connect Dehumidifier", namespace: "jonozzz", author: "Custom") {
+        capability "Sensor"
+        capability "Switch"
+        capability "Initialize"
+        capability "Refresh"
+        capability "FanControl"
+        capability "RelativeHumidityMeasurement"
+
+        attribute "dehumidifierMode", "string"
+        attribute "airFlowSpeed",     "string"
+        attribute "waterFull",        "string"
+
+        command "setDehumidifierMode", [[name:"mode", type:"ENUM",
+            constraints:["RAPID_HUMIDITY","CLOTHES_DRY","AIR_CLEAN","QUIET_HUMIDITY","SMART_HUMIDITY","INTENSIVE_DRY"]]]
+    }
+
+    preferences {
+        input name: "pollInterval", title: "Polling Interval", type: "enum",
+              options: ["0":"Off", "1":"1 min", "2":"2 min", "5":"5 min", "10":"10 min", "15":"15 min", "30":"30 min"],
+              defaultValue: "5", required: false
+        input name: "logLevel",    title: "Log Level",            type: "enum", options: LOG_LEVELS, defaultValue: DEFAULT_LOG_LEVEL, required: false
+        input name: "logDescText", title: "Log Description Text", type: "bool", defaultValue: false, required: false
+    }
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+def installed() {
+    logger("debug", "installed()")
+    initialize()
+}
+
+def updated() {
+    logger("debug", "updated()")
+    initialize()
+}
+
+def uninstalled() {
+    logger("debug", "uninstalled()")
+}
+
+def initialize() {
+    logger("debug", "initialize()")
+    unschedule()
+
+    if (getDataValue("master") == "true") {
+        if (interfaces.mqtt.isConnected())
+            interfaces.mqtt.disconnect()
+        mqttConnectUntilSuccessful()
+    }
+
+    schedulePoll()
+    refresh()
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+
+private schedulePoll() {
+    def interval = settings.pollInterval ?: "5"
+    if (interval == "0") {
+        logger("info", "Polling disabled")
+        return
+    }
+    switch (interval) {
+        case "1":  runEvery1Minute("refresh");   break
+        case "2":  runEvery2Minutes("refresh");  break
+        case "5":  runEvery5Minutes("refresh");  break
+        case "10": runEvery10Minutes("refresh"); break
+        case "15": runEvery15Minutes("refresh"); break
+        case "30": runEvery30Minutes("refresh"); break
+    }
+    logger("info", "Polling scheduled every ${interval} minute(s)")
+}
+
+// ── MQTT ──────────────────────────────────────────────────────────────────────
+
+def mqttConnectUntilSuccessful() {
+    logger("debug", "mqttConnectUntilSuccessful()")
+    try {
+        def mqtt = parent.retrieveMqttDetails()
+        interfaces.mqtt.connect(
+            mqtt.server, mqtt.clientId, null, null,
+            tlsVersion: "1.2",
+            privateKey: mqtt.privateKey,
+            caCertificate: mqtt.caCertificate,
+            clientCertificate: mqtt.certificate,
+            cleanSession: true,
+            ignoreSSLIssues: true
+        )
+        pauseExecution(3000)
+        for (sub in mqtt.subscriptions) {
+            interfaces.mqtt.subscribe(sub)
+        }
+        return true
+    } catch (e) {
+        logger("warn", "Lost connection to MQTT, retrying in 15 seconds ${e}")
+        runIn(15, "mqttConnectUntilSuccessful")
+        return false
+    }
+}
+
+def parse(message) {
+    def topic = interfaces.mqtt.parseMessage(message)
+    def payload = new JsonSlurper().parseText(topic.payload)
+    logger("trace", "parse(${payload})")
+    parent.processMqttMessage(this, payload)
+}
+
+def mqttClientStatus(String message) {
+    logger("debug", "mqttClientStatus(${message})")
+    if (message.startsWith("Error:")) {
+        logger("error", "MQTT Error: ${message}")
+        try { interfaces.mqtt.disconnect() } catch (e) {}
+        mqttConnectUntilSuccessful()
+    }
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+
+def refresh() {
+    logger("debug", "refresh()")
+    def status = parent.getDeviceState(getDeviceId())
+    processStateData(status)
+}
+
+// ── Switch ────────────────────────────────────────────────────────────────────
+
+def on() {
+    logger("debug", "on()")
+    parent.sendDeviceCommand(getDeviceId(), [
+        operation: [ dehumidifierOperationMode: "POWER_ON" ]
+    ])
+    sendEvent(name: "switch",    value: "on")
+    sendEvent(name: "waterFull", value: "ok")
+}
+
+def off() {
+    logger("debug", "off()")
+    parent.sendDeviceCommand(getDeviceId(), [
+        operation: [ dehumidifierOperationMode: "POWER_OFF" ]
+    ])
+    sendEvent(name: "switch", value: "off")
+}
+
+// ── FanControl ────────────────────────────────────────────────────────────────
+
+def setSpeed(String speed) {
+    logger("debug", "setSpeed(${speed})")
+    // Dehumidifier only supports HIGH / LOW
+    def speedMap = [
+        "low"  : "LOW",
+        "high" : "HIGH",
+        "auto" : "HIGH",
+        "on"   : "HIGH"
+    ]
+    def apiSpeed = speedMap[speed?.toLowerCase()] ?: "HIGH"
+    parent.sendDeviceCommand(getDeviceId(), [
+        airFlow: [ windStrength: apiSpeed ]
+    ])
+    sendEvent(name: "speed",        value: speed)
+    sendEvent(name: "airFlowSpeed", value: apiSpeed)
+}
+
+// ── Dehumidifier Mode ─────────────────────────────────────────────────────────
+
+def setDehumidifierMode(mode) {
+    logger("debug", "setDehumidifierMode(${mode})")
+    // Note: API spec marks currentJobMode as read-only,
+    // but some models accept write commands
+    parent.sendDeviceCommand(getDeviceId(), [
+        dehumidifierJobMode: [ currentJobMode: mode ]
+    ])
+    sendEvent(name: "dehumidifierMode", value: cleanEnumValue(mode))
+}
+
+// ── State Parsing ─────────────────────────────────────────────────────────────
+
+def processStateData(data) {
+    logger("debug", "processStateData(${data})")
+
+    if (!data) return
+    // Handle API responses wrapped in a List
+    if (data instanceof List) {
+        if (data.isEmpty()) return
+        data = data[0]
+    }
+    if (!(data instanceof Map)) return
+
+    // 1. Power state — authoritative source for switch
+    def opMode = data.operation?.dehumidifierOperationMode
+    if (opMode != null) {
+        def isOn = (opMode == "POWER_ON")
+        sendEvent(name: "switch", value: isOn ? "on" : "off")
+        if (logDescText) log.info "${device.displayName} switch → ${isOn ? 'on' : 'off'}"
+    } else if (!data.operation && device.currentValue("switch") == "on") {
+        // Push notification arrived without operation state
+        // (e.g. WATER_IS_FULL) — refresh to get actual state
+        logger("debug", "No operation in payload — scheduling refresh for actual state")
+        runIn(5, "refresh")
+    }
+
+    // 2. Job mode (read only per spec)
+    if (data.dehumidifierJobMode?.currentJobMode != null) {
+        sendEvent(name: "dehumidifierMode",
+                  value: cleanEnumValue(data.dehumidifierJobMode.currentJobMode))
+        if (logDescText) log.info "${device.displayName} mode → ${data.dehumidifierJobMode.currentJobMode}"
+    }
+
+    // 3. Fan speed — map LG API values back to Hubitat FanControl standard values
+    if (data.airFlow?.windStrength != null) {
+        def windStrength = data.airFlow.windStrength
+        def hubitatSpeed = [ "LOW": "low", "HIGH": "high" ][windStrength] ?: windStrength.toLowerCase()
+        sendEvent(name: "speed",        value: hubitatSpeed)
+        sendEvent(name: "airFlowSpeed", value: windStrength)
+    }
+
+    // 4. Current humidity — mapped to RelativeHumidityMeasurement capability
+    if (data.humidity?.currentHumidity != null) {
+        sendEvent(name: "humidity", value: data.humidity.currentHumidity, unit: "%")
+        if (logDescText) log.info "${device.displayName} humidity → ${data.humidity.currentHumidity}%"
+    }
+
+    // 5. Water tank full
+    // Triggered via WATER_IS_FULL push notification or error field
+    if (data.notification == "WATER_IS_FULL" || data.error == "WATER_IS_FULL") {
+        sendEvent(name: "waterFull", value: "full")
+        log.warn "${device.displayName} Water tank is full — scheduling refresh"
+        // Dehumidifier auto-stops when tank is full; refresh to confirm power state
+        runIn(5, "refresh")
+    } else if (opMode == "POWER_OFF") {
+        sendEvent(name: "waterFull", value: "unknown")
+    } else if (opMode == "POWER_ON") {
+        sendEvent(name: "waterFull", value: "ok")
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+def getDeviceId() {
+    return device.deviceNetworkId.replace("thinqconnect:", "")
+}
+
+// Convert SCREAMING_SNAKE_CASE enum values to Title Case for display
+def cleanEnumValue(value) {
+    if (value == null) return ""
+    return value.toString()
+        .replaceAll(/_/, " ")
+        .toLowerCase()
+        .split(' ')
+        .collect { it.capitalize() }
+        .join(' ')
+}
+
+private logger(level, msg) {
+    if (level && msg) {
+        Integer levelIdx    = LOG_LEVELS.indexOf(level)
+        Integer setLevelIdx = LOG_LEVELS.indexOf(logLevel)
+        if (setLevelIdx < 0) setLevelIdx = LOG_LEVELS.indexOf(DEFAULT_LOG_LEVEL)
+        if (levelIdx <= setLevelIdx) {
+            log."${level}" "${device.displayName} ${msg}"
+        }
+    }
+}
