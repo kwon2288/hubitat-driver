@@ -14,6 +14,7 @@ Hubitat Elevation용 커스텀 드라이버 모음입니다. 프로젝트별로 
 | `awair-omni-local/` | Awair Omni 공기질 모니터의 로컬 API를 폴링해 온도, 습도, CO2, VOC, PM2.5, 조도, 소음, 그리고 로컬에서 계산한 EPA AQI를 가져옵니다. 정식 저장소/HPM 패키지는 `Hubitat-AwAir`이며, 여기 있는 사본은 둘러보기 편의용으로만 유지합니다. |
 | `samsung-soundbar-local/` | 2024년 이후 삼성 Wi-Fi 사운드바를 TCP 1516의 로컬 JSON-RPC API로 로컬(LAN 전용) 제어합니다 — 전원, 볼륨, 음소거, 입력 소스, 사운드 모드, 서브우퍼. 프로토콜은 ZtF가 Home Assistant용으로 리버스 엔지니어링한 것을 네이티브 Hubitat 드라이버로 포팅했습니다. |
 | `navien-mate/` | 나비엔 스마트 숙면매트(단계형/1.0L, EME-500 등)를 실시간 상태 반영과 함께 연동합니다. 폴더가 방식별로 나뉩니다: `bridge-mode/`(Docker 브리지, 검증됨)와 `onhub-mode/`(App+드라이버만, Docker 불필요, 실험적). |
+| `lg-thinq/` | LG 공식 ThinQ Connect API(PAT 인증) 기반 통합. 세탁기·건조기·식기세척기 등 기본 지원 기기 외에 공기청정기, 에어컨(시스템형/벽걸이 전용), 스타일러, 제습기, 미니워시, 정수기(모니터링 전용) 드라이버를 추가·수정하여 포함합니다. [jonozzz/hubitat-thinqconnect](https://github.com/jonozzz/hubitat-thinqconnect) 프레임워크 기반. |
 
 드라이버는 계속 추가될 예정입니다 — 설치·설정에 관한 프로젝트별 상세 내용은 각
 프로젝트 자체의 `README.md`를 참고하세요.
