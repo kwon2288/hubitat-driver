@@ -9,7 +9,7 @@
  *   제어: 이 드라이버가 브리지의 로컬 HTTP(/control)를 호출하면, 브리지가 실제 나비엔
  *         REST control로 중계.
  *
- * 브리지: https://github.com/kwon2288/hubitat-driver (navien-hubitat-bridge)
+ * 브리지: https://github.com/kwon2288/hubitat-driver (navien-mate/bridge-mode/bridge)
  * 원본 HA 통합: https://github.com/ripe-avocado/navien_smart_ha
  */
 import groovy.json.JsonSlurper
