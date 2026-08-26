@@ -89,6 +89,11 @@ def initialize() {
         mqttConnectUntilSuccessful()
     }
 
+    // Safety-net polling — catches missed MQTT push / missed one-shot refresh
+    // regardless of completion-time calculation. This is on top of the
+    // configurable pollInterval schedule below.
+    runEvery5Minutes("watchdogRefresh")
+
     schedulePoll()
     refresh()
 }
@@ -159,8 +164,24 @@ def mqttClientStatus(String message) {
 
 def refresh() {
     logger("debug", "refresh()")
-    def status = parent.getDeviceState(getDeviceId())
-    processStateData(status)
+    try {
+        def status = parent.getDeviceState(getDeviceId())
+        if (status == null) {
+            logger("warn", "refresh() — getDeviceState returned null")
+            return
+        }
+        processStateData(status)
+    } catch (e) {
+        logger("error", "refresh() failed: ${e}")
+    }
+}
+
+// Safety-net poll — runs independently of completion-time scheduling.
+// Re-syncs state on a fixed interval so a missed one-shot refresh or
+// missed MQTT push can't leave switch stuck for hours.
+def watchdogRefresh() {
+    logger("debug", "watchdogRefresh() — periodic safety check")
+    refresh()
 }
 
 // ── Switch / Commands ─────────────────────────────────────────────────────────
@@ -174,7 +195,6 @@ def off() {
     ])
     sendEvent(name: "switch",             value: "off")
     sendEvent(name: "currentState",       value: "PAUSE")
-    // Clear stale time displays on manual stop
     sendEvent(name: "remainingTime",        value: 0,   unit: "seconds")
     sendEvent(name: "remainingTimeDisplay", value: "--")
     sendEvent(name: "finishTimeDisplay",    value: "--")
@@ -246,13 +266,13 @@ def processStateData(data) {
         // Refresh after completion to get final state
         // (MQTT push on completion may not include full runState)
         if (currentState in ["COMPLETE", "RUNNING_END"]) {
-            runIn(5, "refresh")
+            runIn(5, "watchdogRefresh")
         }
     } else if (!data.runState && device.currentValue("switch") == "on") {
         // Push notification arrived without runState (e.g. STYLING_IS_COMPLETE)
         // Trigger refresh to get actual final state
         logger("debug", "No runState in payload — scheduling refresh for final state")
-        runIn(5, "refresh")
+        runIn(5, "watchdogRefresh")
     }
 
     // 2. Remote control
@@ -269,14 +289,16 @@ def processStateData(data) {
     sendEvent(name: "remainingTime",        value: remainingSec, unit: "seconds")
     sendEvent(name: "remainingTimeDisplay", value: convertSecondsToTime(remainingSec))
 
-    // Schedule a refresh just after cycle should complete
-    // Handles cases where MQTT completion notification is missing
+    // Schedule a one-shot refresh just after cycle should complete.
+    // This is a best-effort optimization for quick UI updates — the
+    // 5-minute watchdogRefresh poll is the actual guarantee against
+    // this being missed (hub reboot, scheduler slip, silent MQTT drop, etc).
     if (remainingSec > 0 && device.currentValue("switch") == "on") {
         def refreshDelay = remainingSec + 30  // 30 second buffer after expected completion
         logger("debug", "Scheduling completion refresh in ${refreshDelay}s (remainingSec=${remainingSec})")
-        runIn(refreshDelay, "refresh")
+        runIn(refreshDelay, "watchdogRefresh")
     } else if (remainingSec == 0 && device.currentValue("switch") == "on") {
-        runIn(15, "refresh")
+        runIn(15, "watchdogRefresh")
     }
 
     // 4. Finish time display
