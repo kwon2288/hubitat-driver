@@ -11,11 +11,9 @@ Homey's local REST API.
 homey-bridge/
 ├── apps/
 │   └── homey-bridge-app.groovy          # parent app
-├── drivers/
-│   ├── homey-generic-device-driver.groovy   # generic child driver (switches/sensors)
-│   └── homey-onair-radio-driver.groovy      # radio-specific child driver (MusicPlayer)
-└── docs/
-    └── REALTIME-WEBHOOK.md              # realtime webhook setup guide (Korean)
+└── drivers/
+    ├── homey-generic-device-driver.groovy   # generic child driver (switches/sensors)
+    └── homey-onair-radio-driver.groovy      # radio-specific child driver (MusicPlayer)
 ```
 
 ## Key features
@@ -27,9 +25,6 @@ homey-bridge/
   - `Polling only` (default, no extra setup required)
   - `Polling + Webhook`
   - `Webhook only`
-- With webhook mode, Homey Flow pushes state changes to a Hubitat local API
-  endpoint for near-instant updates (see
-  [docs/REALTIME-WEBHOOK.md](./docs/REALTIME-WEBHOOK.md) for setup - Korean only)
 
 ## Drivers
 
@@ -97,6 +92,110 @@ assistant bridges.
    → child devices are created automatically (for radios, change the Type to
    `Homey OnAir Radio` in Device Information afterward)
 
+## Finding capability IDs / homeyId
+
+To add a new device or set up a webhook, you need to know which capability
+IDs a device actually exposes on Homey, and the internal `homeyId` Hubitat
+assigned it. No need to dig through Homey's developer docs - the drivers
+already log this for you.
+
+1. Open the child device's page → check `Enable debug logging` under
+   `Preferences` → click `Save Preferences`
+2. Click the `Refresh` command on the same page (no need to wait for the
+   next poll cycle)
+3. Check Hubitat's `Logs` (Live Logs) page for a line like:
+   ```
+   updateFromHomey received: [speaker_playing:[..., id:speaker_playing, getable:true, setable:true, value:false], ...]
+   ```
+   Each top-level key (`speaker_playing`, `measure_temperature`, etc.) is
+   that device's actual capability ID. The `setable`/`getable` flags also
+   tell you immediately whether that capability can be written to / read
+   from via Hubitat (`setable:false` means Homey's server will reject any
+   write regardless of what Hubitat sends).
+4. Unmapped capabilities show up separately as
+   `Unmapped Homey capability <id> = <value>`. Use that ID to add a new
+   `case` to the driver's `updateFromHomey()` switch statement.
+5. A child device's `homeyId` (needed for webhook URLs, etc.) is listed per
+   device in the parent app's (`Homey Bridge`) settings page, under the
+   `Realtime Webhook` section.
+
+## Realtime webhook setup (optional)
+
+Skip this section if `Update Mode` is set to "Polling only". This is only
+needed if you want Hubitat to reflect a Homey state change immediately
+instead of waiting for the next poll.
+
+### Concept
+
+- **Polling**: Hubitat asks Homey for its current state every few minutes.
+  Simple to implement, but introduces up to one poll-interval's worth of lag.
+- **Webhook**: Homey notifies Hubitat the moment a state changes, via a
+  Homey Flow calling an HTTP endpoint this app exposes. The endpoint itself
+  is always active regardless of the `Update Mode` setting.
+
+### 1. Enable OAuth for the Hubitat app (one-time)
+
+1. Open `Apps Code` → `Homey Bridge`
+2. Top-right menu → `OAuth` → check `Enable OAuth in Apps` → `Update`
+3. Skipping this makes `createAccessToken()` fail, and no webhook URL will
+   be generated.
+
+### 2. Find the webhook URL
+
+`Apps` → `Homey Bridge` → bottom `Realtime Webhook` section:
+
+```
+http://<hub-ip>/apps/api/<app-id>/webhook/<homeyId>/<capability>?value=[[value]]&access_token=<token>
+```
+
+`<hub-ip>`, `<app-id>`, and `<token>` are already filled in on that page.
+Get `<homeyId>` from the device list right below it, and `<capability>` from
+the ["Finding capability IDs"](#finding-capability-ids--homeyid) section
+above.
+
+### 3. Make sure Homey has the Logic app installed
+
+Search **Logic** in the Homey app store (often pre-installed). It provides a
+Flow card for making an arbitrary HTTP request. Searching for "webhook" in
+the card picker won't find it - Homey has no dedicated webhook card; you
+reuse its generic HTTP request card for this purpose.
+
+### 4. Create a Flow (example: playback status)
+
+1. Homey app → the device → `Flow` tab → new Flow
+2. **WHEN**: trigger on "when [playing status] changes"
+3. **THEN**: add the generic "make a web request" card from Logic
+   - **Method**: `GET`
+   - **URL**: fill in the format above with `<capability>` fixed to
+     `speaker_playing`
+   - For `[[value]]`, either insert the changed-value tag from the WHEN
+     trigger, or just hardcode `true`/`false` directly
+   - Headers/Body can be left empty for a GET request
+4. Save
+
+Repeat for other capabilities (`speaker_track`, `speaker_artist`, etc.) to
+get those reflected in realtime too. If creating a Flow per capability is
+too much, use "Polling + Webhook" mode instead - whatever you did wire up a
+Flow for updates instantly, and polling covers the rest.
+
+### 5. A note on value formatting
+
+Homey's Flow tags sometimes come through as words like `playing`/`paused`
+instead of `true`/`false`. If that happens, the simplest fix is to hardcode
+`true`/`false` directly in the Flow instead of using the tag.
+
+### 6. Testing
+
+1. Trigger a real state change on the device (e.g. Play/Pause)
+2. Check Hubitat's `Logs` for a line like:
+   ```
+   webhookHandler: homey-<id> speaker_playing raw='true' -> true
+   ```
+3. If nothing shows up: check the Flow's run history in the Homey app to
+   confirm it actually fired, double-check the `homeyId`/`access_token` in
+   the URL, and confirm Homey and Hubitat are on the same local network
+   (check for firewall/VLAN separation).
+
 ## Known limitations
 
 - Single Homey hub only (`singleInstance: true`) - remove this from the app
@@ -110,7 +209,6 @@ assistant bridges.
 
 ## Extending
 
-Add a new `case` to the switch statement inside `updateFromHomey()` to map an
-additional capability. If you're not sure what capabilities a device exposes,
-enable the `logDebug` preference on the child device, hit Refresh, and check
-the `Unmapped Homey capability ...` lines in Hubitat's `Logs`.
+Look up the capability ID using the
+["Finding capability IDs"](#finding-capability-ids--homeyid) steps above,
+then add a new `case` to the switch statement inside `updateFromHomey()`.
