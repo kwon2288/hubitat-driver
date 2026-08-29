@@ -133,9 +133,9 @@ def initialize() {
             case "30": runEvery30Minutes("pollHomey"); break
             default:   runEvery5Minutes("pollHomey")
         }
-        log.info "initialize: recurring polling scheduled (every ${pollInterval ?: 5} min)"
+        if (logEnable) log.debug "initialize: recurring polling scheduled (every ${pollInterval ?: 5} min)"
     } else {
-        log.info "initialize: webhook-only mode, no recurring poll scheduled"
+        if (logEnable) log.debug "initialize: webhook-only mode, no recurring poll scheduled"
     }
     pollHomey() // one-time sync on save/startup regardless of mode
 }
@@ -173,7 +173,7 @@ Map getHomeyDevices() {
     } catch (e) {
         log.warn "getHomeyDevices error: ${e.message}"
     }
-    log.info "getHomeyDevices: ${result ? result.size() : 0} device(s) retrieved"
+    if (logEnable) log.debug "getHomeyDevices: ${result ? result.size() : 0} device(s) retrieved"
     return result
 }
 
@@ -215,7 +215,7 @@ def createChildDevices() {
 // ---------- Polling (Homey -> Hubitat) ----------
 
 def pollHomey() {
-    log.info "pollHomey: starting poll cycle"
+    if (logEnable) log.debug "pollHomey: starting poll cycle"
     def homeyDevices = getHomeyDevices()
     if (!homeyDevices) {
         log.warn "pollHomey: could not reach Homey"
@@ -224,7 +224,7 @@ def pollHomey() {
     getChildDevices().each { cd ->
         def id = cd.getDataValue("homeyId")
         def hd = homeyDevices[id]
-        log.info "pollHomey: child=${cd.deviceNetworkId} homeyId=${id} found=${hd != null} hasCapsObj=${hd?.capabilitiesObj != null}"
+        if (logEnable) log.debug "pollHomey: child=${cd.deviceNetworkId} homeyId=${id} found=${hd != null} hasCapsObj=${hd?.capabilitiesObj != null}"
         if (hd?.capabilitiesObj) {
             cd.updateFromHomey(hd.capabilitiesObj)
         } else {
@@ -253,7 +253,7 @@ def sendCommand(String dni, String capability, value) {
     ]
     try {
         httpPut(params) { resp ->
-            log.info "sendCommand ${capability}=${value} to ${id} -> status ${resp.status}, response=${resp.data}"
+            if (logEnable) log.debug "sendCommand ${capability}=${value} to ${id} -> status ${resp.status}, response=${resp.data}"
         }
     } catch (e) {
         log.warn "sendCommand ${capability}=${value} to ${id} FAILED: ${e.message}"
@@ -280,7 +280,7 @@ def webhookHandler() {
         render(contentType: "application/json", data: '{"status":"unknown device"}', status: 404)
         return
     }
-    log.info "webhookHandler: ${dni} ${capability} raw='${rawValue}' -> ${value}"
+    if (logEnable) log.debug "webhookHandler: ${dni} ${capability} raw='${rawValue}' -> ${value}"
     cd.updateFromHomey([(capability): [value: value]])
     render(contentType: "application/json", data: '{"status":"ok"}', status: 200)
 }

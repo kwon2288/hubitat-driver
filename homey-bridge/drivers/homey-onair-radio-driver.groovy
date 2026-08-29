@@ -101,14 +101,14 @@ def playTrack(trackuri, volumelevel = null) {
 }
 
 def refresh() {
-    log.info "Homey OnAir Radio: refresh() called, parent=${parent}"
+    if (logDebug) log.debug "Homey OnAir Radio: refresh() called, parent=${parent}"
     parent?.refreshDevice(device.deviceNetworkId)
 }
 
 // ---------- State sync (Homey -> Hubitat) ----------
 
 def updateFromHomey(Map capsObj) {
-    log.info "updateFromHomey received: ${capsObj}"
+    if (logDebug) log.debug "updateFromHomey received: ${capsObj}"
     capsObj.each { capId, capData ->
         def v = (capData instanceof Map) ? capData.value : capData
         if (v == null) return
@@ -128,7 +128,7 @@ def updateFromHomey(Map capsObj) {
                 sendEvent(name: "level", value: pct)
                 break
             default:
-                log.info "Unmapped Homey capability ${capId} = ${v}"
+                if (logDebug) log.debug "Unmapped Homey capability ${capId} = ${v}"
                 break
         }
     }

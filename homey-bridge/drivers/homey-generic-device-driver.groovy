@@ -96,7 +96,7 @@ def push(buttonNumber = 1) {
 }
 
 def refresh() {
-    log.info "Homey Generic Device: refresh() called, parent=${parent}"
+    if (logDebug) log.debug "Homey Generic Device: refresh() called, parent=${parent}"
     parent?.refreshDevice(device.deviceNetworkId)
 }
 
@@ -104,7 +104,7 @@ def refresh() {
 // capsObj: Map of Homey capabilityId -> [value: ..., ...] (Homey device.capabilitiesObj)
 
 def updateFromHomey(Map capsObj) {
-    log.info "updateFromHomey received: ${capsObj}"
+    if (logDebug) log.debug "updateFromHomey received: ${capsObj}"
     capsObj.each { capId, capData ->
         def v = (capData instanceof Map) ? capData.value : capData
         if (v == null) return
@@ -151,7 +151,7 @@ def updateFromHomey(Map capsObj) {
                 sendEvent(name: "windowShade", value: pct >= 95 ? "open" : (pct <= 5 ? "closed" : "partially open"))
                 break
             default:
-                log.info "Unmapped Homey capability ${capId} = ${v}"
+                if (logDebug) log.debug "Unmapped Homey capability ${capId} = ${v}"
                 break
         }
     }
