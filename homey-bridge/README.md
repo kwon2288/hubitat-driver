@@ -12,14 +12,18 @@ homey-bridge/
 ├── apps/
 │   └── homey-bridge-app.groovy          # 부모 앱
 └── drivers/
-    ├── homey-generic-device-driver.groovy   # 범용 자식 드라이버 (스위치/센서류)
+    ├── homey-switch-driver.groovy           # 순수 on/off 전용 자식 드라이버
+    ├── homey-dimmer-driver.groovy           # 밝기/색상/색온도 전용 자식 드라이버
+    ├── homey-generic-device-driver.groovy   # 센서/버튼/커튼 전용 자식 드라이버
     └── homey-onair-radio-driver.groovy      # 라디오 전용 자식 드라이버 (MusicPlayer)
 ```
 
 ## 주요 기능
 
 - Homey Pro의 로컬 REST API(`/api/manager/devices/device/...`)로 기기 목록 조회 및 제어
-- 선택한 기기마다 Hubitat child device 자동 생성/삭제
+- 선택한 기기마다 Hubitat child device 자동 생성/삭제 (신규 생성 시 기본 드라이버는
+  `Homey Generic Device` — 스위치/조명/라디오류는 생성 후 Device Information에서
+  Type을 수동으로 바꿔줘야 함, 아래 설치 순서 5번 참고)
 - **Update Mode** 선택 가능:
   - `폴링만` (기본값, 추가 설정 불필요)
   - `폴링 + 웹훅`
@@ -27,10 +31,19 @@ homey-bridge/
 
 ## 드라이버
 
-### Homey Generic Device
+### Homey Switch
 
-on/off, 밝기, 색상/색온도, 커튼, 온습도/조도/전력/모션/접촉/배터리 센서,
-버튼(PushableButton)까지 매핑하는 범용 드라이버.
+순수 on/off만 다루는 최소 드라이버. 플러그, 벽 스위치처럼 밝기·색상 조절이 없는
+기기용.
+
+| Homey capability | Hubitat 매핑 |
+|---|---|
+| `onoff` | Switch |
+
+### Homey Dimmer
+
+밝기/색상/색온도를 다루는 드라이버. 밝기 조절이 되는 기기는 자체적으로 on/off도
+필요하므로 Switch 캡퍼빌리티도 함께 포함됨.
 
 | Homey capability | Hubitat 매핑 |
 |---|---|
@@ -38,6 +51,14 @@ on/off, 밝기, 색상/색온도, 커튼, 온습도/조도/전력/모션/접촉/
 | `dim` | SwitchLevel |
 | `light_hue` / `light_saturation` | ColorControl |
 | `light_temperature` | ColorTemperature (2200K-6500K 근사 매핑) |
+
+### Homey Generic Device
+
+온습도/조도/전력/모션/접촉/배터리 센서, 버튼(PushableButton), 커튼까지
+매핑하는 센서·기타 전용 드라이버.
+
+| Homey capability | Hubitat 매핑 |
+|---|---|
 | `measure_temperature` | TemperatureMeasurement |
 | `measure_humidity` | RelativeHumidityMeasurement |
 | `measure_luminance` | IlluminanceMeasurement |
@@ -84,8 +105,9 @@ Homey의 media 계열 capability(`speaker_playing`, `speaker_next`, `speaker_pre
 
 5. **기기 선택**
    `Select Homey Devices to Import` 진입 → 원하는 기기 체크 → 저장
-   → child device 자동 생성 (라디오류는 생성 후 Device Information에서 Type을
-   `Homey OnAir Radio`로 변경)
+   → child device 자동 생성 (기본 Type은 `Homey Generic Device` — 순수 on/off
+   기기는 `Homey Switch`, 밝기/색상 조절 기기는 `Homey Dimmer`, 라디오류는
+   `Homey OnAir Radio`로 Device Information에서 Type을 수동으로 변경)
 
 ## Capability ID / homeyId 찾는 방법
 

@@ -1,20 +1,16 @@
 /**
  * Homey Generic Device (Child Driver)
  *
- * Generic bridge driver for devices imported from Homey Pro via the
- * "Homey Bridge" parent app. Declares a broad capability set and maps
- * the common Homey capabilities it recognizes to matching Hubitat
- * attributes. Unmapped Homey capabilities are logged but ignored -
- * extend the switch statement in updateFromHomey() as needed.
+ * Generic bridge driver for sensor / button / window-shade Homey devices
+ * imported via the "Homey Bridge" parent app. On/off, dimmable, and
+ * color/color-temperature devices use the separate "Homey Switch" driver
+ * instead. Unmapped Homey capabilities are logged but ignored - extend
+ * the switch statement in updateFromHomey() as needed.
  *
  * Author: kwon2288
  */
 metadata {
     definition(name: "Homey Generic Device", namespace: "kwon2288", author: "kwon2288") {
-        capability "Switch"
-        capability "SwitchLevel"
-        capability "ColorControl"
-        capability "ColorTemperature"
         capability "TemperatureMeasurement"
         capability "RelativeHumidityMeasurement"
         capability "IlluminanceMeasurement"
@@ -46,36 +42,6 @@ def initialize() {
 }
 
 // ---------- Commands (Hubitat -> Homey) ----------
-
-def on() {
-    parent?.sendCommand(device.deviceNetworkId, "onoff", true)
-}
-
-def off() {
-    parent?.sendCommand(device.deviceNetworkId, "onoff", false)
-}
-
-def setLevel(level, duration = null) {
-    def v = (level as Integer) / 100.0
-    parent?.sendCommand(device.deviceNetworkId, "dim", v)
-}
-
-def setColor(colorMap) {
-    if (colorMap?.hue != null) {
-        parent?.sendCommand(device.deviceNetworkId, "light_hue", (colorMap.hue as Integer) / 100.0)
-    }
-    if (colorMap?.saturation != null) {
-        parent?.sendCommand(device.deviceNetworkId, "light_saturation", (colorMap.saturation as Integer) / 100.0)
-    }
-}
-
-def setColorTemperature(temp, level = null, duration = null) {
-    // Homey's light_temperature is 0 (cold) - 1 (warm); Hubitat uses Kelvin.
-    // Rough linear mapping across a 2200K-6500K range - tune if your bulbs differ.
-    def clamped = Math.max(2200, Math.min(6500, temp as Integer))
-    def v = 1 - ((clamped - 2200) / (6500 - 2200))
-    parent?.sendCommand(device.deviceNetworkId, "light_temperature", v)
-}
 
 def open() {
     parent?.sendCommand(device.deviceNetworkId, "windowcoverings_state", "up")
@@ -109,12 +75,6 @@ def updateFromHomey(Map capsObj) {
         def v = (capData instanceof Map) ? capData.value : capData
         if (v == null) return
         switch (capId) {
-            case "onoff":
-                sendEvent(name: "switch", value: v ? "on" : "off")
-                break
-            case "dim":
-                sendEvent(name: "level", value: Math.round((v as Double) * 100))
-                break
             case "measure_temperature":
                 sendEvent(name: "temperature", value: v, unit: "\u00b0C")
                 break

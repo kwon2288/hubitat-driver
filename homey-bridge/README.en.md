@@ -12,7 +12,9 @@ homey-bridge/
 ├── apps/
 │   └── homey-bridge-app.groovy          # parent app
 └── drivers/
-    ├── homey-generic-device-driver.groovy   # generic child driver (switches/sensors)
+    ├── homey-switch-driver.groovy           # plain on/off child driver
+    ├── homey-dimmer-driver.groovy           # dimming/color child driver
+    ├── homey-generic-device-driver.groovy   # sensor/button/shade child driver
     └── homey-onair-radio-driver.groovy      # radio-specific child driver (MusicPlayer)
 ```
 
@@ -21,6 +23,9 @@ homey-bridge/
 - Reads and controls devices via Homey Pro's local REST API
   (`/api/manager/devices/device/...`)
 - Auto-creates/removes a Hubitat child device per selected Homey device
+  (newly created devices default to the `Homey Generic Device` driver -
+  switches/dimmers/radios need their Type changed manually afterward,
+  see step 5 under Installation)
 - Selectable **Update Mode**:
   - `Polling only` (default, no extra setup required)
   - `Polling + Webhook`
@@ -28,11 +33,19 @@ homey-bridge/
 
 ## Drivers
 
-### Homey Generic Device
+### Homey Switch
 
-A generic driver mapping on/off, dimming, color/color temperature, window
-coverings, temperature/humidity/illuminance/power/motion/contact/battery
-sensors, and a push button (PushableButton).
+A minimal driver for plain on/off devices - plugs, wall switches with no
+dimming or color control.
+
+| Homey capability | Hubitat mapping |
+|---|---|
+| `onoff` | Switch |
+
+### Homey Dimmer
+
+A driver for dimming and color/color temperature. Dimmable devices need
+their own on/off control too, so Switch is included alongside SwitchLevel.
 
 | Homey capability | Hubitat mapping |
 |---|---|
@@ -40,6 +53,15 @@ sensors, and a push button (PushableButton).
 | `dim` | SwitchLevel |
 | `light_hue` / `light_saturation` | ColorControl |
 | `light_temperature` | ColorTemperature (approximate 2200K-6500K mapping) |
+
+### Homey Generic Device
+
+A driver dedicated to sensors and other non-switch devices: temperature,
+humidity, illuminance, power, motion, contact, battery, a push button
+(PushableButton), and window coverings.
+
+| Homey capability | Hubitat mapping |
+|---|---|
 | `measure_temperature` | TemperatureMeasurement |
 | `measure_humidity` | RelativeHumidityMeasurement |
 | `measure_luminance` | IlluminanceMeasurement |
@@ -89,8 +111,10 @@ assistant bridges.
 
 5. **Select devices**
    Open `Select Homey Devices to Import` → check the devices you want → save
-   → child devices are created automatically (for radios, change the Type to
-   `Homey OnAir Radio` in Device Information afterward)
+   → child devices are created automatically (default Type is
+   `Homey Generic Device` - change plain on/off devices to `Homey Switch`,
+   dimming/color devices to `Homey Dimmer`, and radios to `Homey OnAir Radio`
+   in Device Information afterward)
 
 ## Finding capability IDs / homeyId
 
