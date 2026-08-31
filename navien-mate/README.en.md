@@ -15,7 +15,7 @@ constraints are why there are two install paths.
 
 | | Bridge | On-hub |
 |---|---|---|
-| Status | ✅ Verified on real hardware (recommended) | 🧪 Experimental — not yet verified on real hardware |
+| Status | ✅ Verified on real hardware | ✅ Verified on real hardware |
 | Setup | Docker bridge (Python) + Hubitat driver | Hubitat App + driver only (no Docker) |
 | Session owner | The bridge | The Hubitat App |
 | Live-state path | Bridge subscribes to AWS IoT → republishes to a local MQTT broker → driver subscribes | Driver subscribes to AWS IoT directly over `wss://` |
@@ -25,13 +25,24 @@ Hubitat's built-in `interfaces.mqtt` accepting `wss://` is undocumented
 behavior. [jlslate/hubitat-navien](https://github.com/jlslate/hubitat-navien)
 (for a different Navien product, NaviLink) demonstrated it works on real
 hardware first; this project's "on-hub" path ports that technique to our API
-(mate). Since it's not an officially supported behavior, **it may not work on
-every hub firmware build.** If it doesn't, power/level control still works
-over REST — only live state fails to update, so there's not much to lose in
-the worst case.
+(mate) and has likewise been verified on real hardware. It's still not an
+officially supported behavior, though, so it may vary by hub firmware build —
+if it doesn't work, power/level control still works over REST; only live
+state fails to update.
 
-If you want something that's known to work, use the **bridge** path. If
-you'd rather not add Docker infrastructure and don't mind experimenting, try
+**Don't run both paths against the same account at the same time.** The
+account allows only one session, so they'll fight over it — symptoms show up
+as a mix of `AWS 자격증명 갱신 실패` ("AWS credential refresh failed"),
+`403 Forbidden` on control commands, and MQTT connection failures, and at
+first glance it looks like a completely different bug (see Troubleshooting
+for a real case).
+
+The bridge path fits if you already have Docker infrastructure. The on-hub
+path fits if you'd rather keep everything on the hub with no Docker. There's
+no functional difference — either way you get the same live state and
+power/level control. The driver/app code for both can be installed side by
+side safely (different names) — the only thing to avoid is logging in with
+both at once under the same account.
 the **on-hub** path. Both live in this repo and can be installed side by
 side without conflicting (the driver names differ).
 
@@ -60,7 +71,7 @@ Hubitat driver (navien-smart-mat.groovy)
    └─ on()/off()/setHeatLevel() → bridge's local HTTP (never calls Navien's cloud directly)
 ```
 
-### On-hub path (experimental)
+### On-hub path
 
 ```
 Navien cloud (AWS IoT + REST)
@@ -209,10 +220,11 @@ docker compose up -d                   # bring it back up
    `initialize()`, which pulls device info from the bridge and connects to
    MQTT.
 
-### Option B — On-hub path (experimental)
+### Option B — On-hub path
 
-No Docker at all. Keep in mind this hasn't been verified on real hardware
-yet — if it doesn't work, REST control still does.
+No Docker at all. Verified on real hardware (EME-500) including live MQTT
+state — though `wss://` support is undocumented on Hubitat's part, so it may
+vary by hub firmware build. If it doesn't work, REST control still does.
 
 1. **Drivers Code** → **New Driver** → paste
    `onhub-mode/drivers/navien-smart-mat-onhub.groovy` → **Save**.
@@ -278,10 +290,9 @@ expose the same capabilities, attributes, and commands.
   integration hasn't verified those on real hardware either, so this project
   matches that scope.
 - If the account has more than one mat, only the first one is used.
-- The on-hub path is **experimental and not yet verified on real
-  hardware**. It relies on undocumented `wss://` behavior in Hubitat, so it
-  may simply not work on some hub firmware builds. REST control (power/level)
-  is unaffected either way.
+- The on-hub path has been verified on real hardware (EME-500), but it still
+  relies on undocumented `wss://` behavior in Hubitat, so it may vary by hub
+  firmware build. REST control (power/level) is unaffected either way.
 - On the bridge path, Hubitat's built-in **MQTT Import Integration**'s
   device-mapping UI is intentionally not used — in testing, attribute mapping
   was unreliable for anything outside a handful of built-in capability
@@ -309,12 +320,23 @@ expose the same capabilities, attributes, and commands.
 
 ### On-hub path
 
-- **`connection` attribute stays `disconnected`** — check whether
-  `signHostWithPort` flips between attempts in the driver log. Whether
-  Hubitat's built-in MQTT client appends the port to the `Host:` header on
-  the WebSocket upgrade appears to vary by hub firmware build, so the driver
-  alternates the signing style on each failure. After 4 failures it falls
-  back to REST-only control and keeps retrying every 5 minutes.
+- **App log repeats `AWS 자격증명 갱신 실패` ("AWS credential refresh
+  failed") every 30 minutes, and control commands fail with `403 Forbidden`
+  at the same time** — almost always a session conflict. The most common
+  cause is the bridge still running against the same account — stop it and
+  log in again from the App. (A real case: the bridge was left running while
+  this App was also active, and this pattern repeated for hours; stopping
+  the bridge fixed it immediately. At the time it looked like the
+  `connection` issue below, but the real problem was that credential refresh
+  itself kept failing, so there was never a valid credential to connect to
+  AWS IoT with in the first place.)
+- **`connection` attribute stays `disconnected`** (and the above isn't the
+  cause) — check whether `signHostWithPort` flips between attempts in the
+  driver log. Whether Hubitat's built-in MQTT client appends the port to the
+  `Host:` header on the WebSocket upgrade appears to vary by hub firmware
+  build, so the driver alternates the signing style on each failure. After 4
+  failures it falls back to REST-only control and keeps retrying every 5
+  minutes.
 - **"로그인 및 기기 검색" fails in the App** — same causes as the login
   entries under the bridge path (session conflict, wrong password, etc.).
   Read the error message shown on the App page directly.
