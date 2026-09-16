@@ -16,6 +16,7 @@ Hubitat Elevation용 커스텀 드라이버 모음입니다. 프로젝트별로 
 | [`lotto645/`](lotto645/README.md) | 동행복권 로또 6/45 당첨번호를 매주 토요일 추첨 직후 자동으로 가져옵니다. 개편된 동행복권 당첨결과 페이지가 사용하는 조회 엔드포인트를 호출하며(구 `common.do` API는 현재 리다이렉트로 막혀 동작하지 않습니다), 등록해 둔 내 번호와 대조해 1~5등/낙첨까지 판정합니다. |
 | [`navien-mate/`](navien-mate/README.md) | 나비엔 스마트 숙면매트(단계형/1.0L, EME-500 등)를 실시간 상태 반영과 함께 연동합니다. 폴더가 방식별로 나뉩니다: `bridge-mode/`(Docker 브리지)와 `onhub-mode/`(App+드라이버만, Docker 불필요) — 둘 다 실기기로 검증됨. |
 | [`samsung-soundbar-local/`](samsung-soundbar-local/README.md) | 2024년 이후 삼성 Wi-Fi 사운드바를 TCP 1516의 로컬 JSON-RPC API로 로컬(LAN 전용) 제어합니다 — 전원, 볼륨, 음소거, 입력 소스, 사운드 모드, 서브우퍼. 프로토콜은 ZtF가 Home Assistant용으로 리버스 엔지니어링한 것을 네이티브 Hubitat 드라이버로 포팅했습니다. |
+| [`tuya-bed-presence/`](tuya-bed-presence/README.md) | Tuya TS0601 압력 스트랩형 침대 재실 센서(`_TZE200_seq9cm6u`)용 지그비 드라이버입니다. 눌림 여부를 `presence`(선택적으로 `motion`)로 보고하고 배터리·동작 상태를 함께 가져오며, 감도·샘플링 주기·재실/비재실 보고 지연을 기기 설정에서 바꿀 수 있습니다. Tuya DP 정의는 Zigbee2MQTT(zigbee-herdsman-converters)에서 포팅했습니다. |
 | [`wan-failover-monitor/`](wan-failover-monitor/README.md) | 공인 IP 폴링으로 UniFi 5G/LTE WAN 페일오버를 감지하고, Cloudflare DDNS를 자동 갱신하며, 영향받은 Docker 컨테이너(Portainer 경유)/Proxmox LXC(Proxmox VE API 경유)를 재시작합니다 |
 
 드라이버는 계속 추가될 예정입니다 — 설치·설정에 관한 프로젝트별 상세 내용은 각
@@ -30,6 +31,7 @@ hubitat-driver/
 ├── LICENSE                    (Apache 2.0, 저장소 전체에 적용)
 └── <project-name>/
     ├── README.md               프로젝트별 문서
+    ├── README.en.md            (선택) 프로젝트별 영어 문서
     ├── drivers/                 해당 프로젝트의 .groovy 드라이버 파일
     │   └── *.groovy
     └── scripts/                 선택적 부속 스크립트 (Hubitat 외부용)
