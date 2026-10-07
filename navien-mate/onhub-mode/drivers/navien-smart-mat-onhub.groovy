@@ -145,9 +145,10 @@ def connect() {
 
     try {
         disconnectMqtt()
-        interfaces.mqtt.connect(url, state.clientId, null, null, cleanSession: true)
+        interfaces.mqtt.connect(url, state.clientId, "", "", cleanSession: true)
     } catch (Exception e) {
-        log.warn "MQTT 접속 실패: ${e.message}"
+        String causeInfo = e.cause ? " / 원인: ${e.cause.class.name}: ${e.cause.message}" : ""
+        log.warn "MQTT 접속 실패: ${e.class.name}: ${e.message}${causeInfo} (url 길이=${url?.length()})"
         connectFailed()
         return
     }

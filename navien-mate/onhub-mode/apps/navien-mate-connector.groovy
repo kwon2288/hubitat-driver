@@ -154,7 +154,13 @@ def refreshAwsCredentials() {
         if (logEnable) log.debug "AWS 자격증명 갱신 완료"
         notifyChildrenCredentialsRefreshed()
     } catch (Exception e) {
-        log.warn "AWS 자격증명 갱신 실패: ${e.message}"
+        // 토큰이 있어도 서버가 더 이상 안 받아줄 수 있다(만료·세션 뺏김 등).
+        // 그런 경우를 대비해 갱신 실패 시 전체 재로그인으로 폴백한다.
+        log.warn "AWS 자격증명 갱신 실패(${e.message}) — 재로그인으로 폴백"
+        login()
+        if (state.accessToken) {
+            notifyChildrenCredentialsRefreshed()
+        }
     }
 }
 
@@ -448,8 +454,10 @@ private Map authedPost(String path, String rawBody) {
 
 private Map authedRequest(String method, String path, String rawBody) {
     def result = rawRequest(method, path, rawBody, state.accessToken)
-    if (result?.code in [CODE_NOT_AUTHORIZED, CODE_TOKEN_EXPIRED]) {
-        if (logEnable) log.debug "세션 무효(code=${result?.code}) — 재로그인 후 재시도"
+    // code 404/407은 JSON 바디 레벨의 "세션 무효" 응답, code -1은 rawRequest가
+    // HTTP 레벨 예외(403 등)를 잡아 만든 값이다 — 둘 다 재로그인 후 재시도 대상.
+    if (result?.code in [CODE_NOT_AUTHORIZED, CODE_TOKEN_EXPIRED, -1]) {
+        if (logEnable) log.debug "세션 무효 가능성(code=${result?.code}) — 재로그인 후 재시도"
         login()
         if (!state.accessToken) return result
         result = rawRequest(method, path, rawBody, state.accessToken)
