@@ -52,8 +52,16 @@ void installed() {
 
 // Runs when the driver preferences are saved/updated
 void updated() {
+    unschedule()
     configure()
     runIn(2, poll)
+}
+
+// Builds the base URI from the IP preference, tolerating whitespace, a pasted scheme or a trailing slash
+String getBaseUri() {
+    String host = (settings.ip ?: "").toString().trim()
+    host = host.replaceFirst(/(?i)^https?:\/\//, "").replaceAll(/\/+$/, "")
+    return "http://" + host
 }
 
 // Method for the initialize capability
@@ -91,7 +99,7 @@ def initialize() {
 def configure() {
     try {
         def Params = [
-                uri        : "http://" + ip,
+                uri        : getBaseUri(),
                 path       : "/settings/config/data",
                 contentType: "application/json"
         ]
@@ -136,7 +144,7 @@ def parseConfig(response, data) {
             updateDataValue("Firmware", awairConfig.fw_version)
 
         } else {
-            log.error "parsing error"
+            log.error "Awair request to ${getBaseUri()} failed: HTTP ${response.getStatus()} ${response.getErrorMessage() ?: ''}"
         }
     } catch (Exception e) {
         log.error "error #5415 : ${e}"
@@ -148,7 +156,7 @@ def parseConfig(response, data) {
 def poll() {
     try {
         def Params = [
-                uri        : "http://" + ip,
+                uri        : getBaseUri(),
                 path       : urlPath,
                 contentType: "application/json"
         ]
@@ -282,16 +290,16 @@ def receiveData(response, data) {
             }
 
             // Humidity
-            fireUpdate("humidity", (int) awairData.humid, "%", "humidity is ${awairData.humid}")
+            if (awairData.humid != null) fireUpdate("humidity", (int) awairData.humid, "%", "humidity is ${awairData.humid}")
 			
 	    // Lux
-            fireUpdate("lux", (int) awairData.lux, "lux", "lux is ${awairData.lux} lux")
+            if (awairData.lux != null) fireUpdate("lux", (int) awairData.lux, "lux", "lux is ${awairData.lux} lux")
 			
             // Noise
-            fireUpdate("noise", (int) awairData.spl_a, "dB", "Noise is ${awairData.spl_a} dB")
+            if (awairData.spl_a != null) fireUpdate("noise", (int) awairData.spl_a, "dB", "Noise is ${awairData.spl_a} dB")
 
         } else {
-            log.error "parsing error"
+            log.error "Awair request to ${getBaseUri()} failed: HTTP ${response.getStatus()} ${response.getErrorMessage() ?: ''}"
         }
     } catch (Exception e) {
         log.error "error #5415 : ${e}"
