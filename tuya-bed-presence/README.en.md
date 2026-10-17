@@ -2,27 +2,28 @@
 
 [한국어](README.md)
 
-A Hubitat Elevation driver for the Tuya TS0601 pressure-strap occupancy sensor (`_TZE200_seq9cm6u`). Place it under a pillow or mattress and it reports whether it is being pressed as a presence state.
+A single Hubitat Elevation driver for two Tuya TS0601 pressure-strap occupancy sensors: `_TZE200_seq9cm6u` and the HOBEIAN ZG-210Z (`_TZE200_ihizzpzn`). Place it under a pillow or mattress and it reports whether it is being pressed as a presence state. The model is detected automatically from the device's manufacturer/model data.
 
-## Supported device
+## Supported devices
 
 | Model | Manufacturer | Notes |
 |---|---|---|
-| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` — `tuya-bed-presence-sensor.groovy` |
-| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | Pressure strap with temperature/humidity — `hobeian-zg-210z-pressure-sensor.groovy` |
+| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` |
+| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | Pressure strap with temperature/humidity |
 
-Fingerprint:
+Fingerprints:
 
 ```
 profileId:"0104", endpointId:"01", inClusters:"0000,EF00", outClusters:"000A,0019", model:"TS0601", manufacturer:"_TZE200_seq9cm6u"
+profileId:"0104", endpointId:"01", inClusters:"0000,0003,0500,0406,EF00,0402,0405,0001", outClusters:"0003", model:"ZG-210Z", manufacturer:"_TZE200_ihizzpzn"
 ```
 
 ## Features
 
 - Presence reporting: `presence` (present / not present)
 - Mirrored `motion` (active / inactive) so motion-based apps such as Motion Lighting work out of the box (can be disabled)
-- Battery, illuminance and work state (`workState`) reporting
-- Sensitivity, sampling interval and presence/absence report delays configurable from the device page
+- Battery reporting. `_TZE200_seq9cm6u` also reports illuminance and work state (`workState`); the ZG-210Z also reports temperature, humidity, raw pressure (`currentPressure`) and state (`pressureState`: none / sit / sedentary)
+- Per-model settings (sensitivity, sampling interval, pressure threshold, report delays, temperature/humidity calibration, ...) configurable from the device page
 - Timestamp of the last presence change (`lastPresenceChange`)
 - Automatic reply to the device's Tuya time-sync request (0x24)
 - Debug logging turns itself off after 30 minutes
@@ -48,10 +49,15 @@ tuya-bed-presence/
 
 | Setting | Range | Description |
 |---|---|---|
-| Sensitivity | low / middle / high | Pressure detection sensitivity |
-| Sampling interval | 5–720 min (step 5) | Sampling interval; non-multiples of 5 are rounded |
-| Delay before reporting 'not present' | 0–3600 s | Delay after pressure is released before reporting absence |
-| Delay before reporting 'present' | 0–3600 s | Delay after pressure is detected before reporting presence |
+| Sensitivity | low / middle / high | Pressure detection sensitivity (seq9cm6u) |
+| Sampling interval | 5–720 min (step 5) | Sampling interval; non-multiples of 5 are rounded (seq9cm6u) |
+| Delay before reporting 'not present' | 0–3600 s | Delay after pressure is released before reporting absence (both models) |
+| Delay before reporting 'present' | 0–3600 s | Delay after pressure is detected before reporting presence (seq9cm6u) |
+| Pressure intensity threshold | 0–2000 | Sensing value at which the strap counts as occupied (ZG-210Z) |
+| Sedentary reminder time | 0–1440 min | Prolonged-sitting reminder time (ZG-210Z) |
+| Temperature calibration | -2.0–2.0 °C | (ZG-210Z) |
+| Humidity calibration | -30–30 % | (ZG-210Z) |
+| Treat 'sedentary' as present | on / off | Whether the `sedentary` state counts as present (ZG-210Z) |
 | Mirror presence to motion | on / off | Whether to also report the `motion` attribute |
 
 A setting is only sent when it differs from the value the device last reported.
@@ -68,10 +74,18 @@ A setting is only sent when it differs from the value the device last reported.
 | `intervalTime` | minutes |
 | `presenceDelay` | seconds |
 | `presenceTime` | seconds |
-| `workState` | presence, none, presence_5min, presence_30min, none_5min, none_30min |
+| `workState` | presence, none, presence_5min, presence_30min, none_5min, none_30min (seq9cm6u) |
+| `temperature` / `humidity` | °C (or °F) / % (ZG-210Z) |
+| `pressureState` | none, sit, sedentary (ZG-210Z) |
+| `currentPressure` | raw pressure value (ZG-210Z) |
+| `pressureIntensity` | threshold (ZG-210Z) |
+| `sedentaryReminder` | minutes (ZG-210Z) |
+| `temperatureCalibration` / `humidityCalibration` | calibration offsets (ZG-210Z) |
 | `lastPresenceChange` | yyyy-MM-dd HH:mm:ss |
 
 ## Tuya DP map
+
+### `_TZE200_seq9cm6u`
 
 | DP | Type | Name | Notes |
 |---|---|---|---|
@@ -84,11 +98,29 @@ A setting is only sent when it differs from the value the device last reported.
 | 103 | value | presence_time | seconds (read/write) |
 | 104 | enum | work_state | 0–5 |
 
+### HOBEIAN ZG-210Z (`_TZE200_ihizzpzn`)
+
+| DP | Type | Name | Notes |
+|---|---|---|---|
+| 1 | enum | pressure_state | 0 none, 1 sit, 2 sedentary |
+| 2 | value | current_pressure | raw sensing value |
+| 15 | value | battery | % |
+| 101 | value | temperature | ÷10 °C |
+| 102 | value | humidity | % |
+| 103 | value | temperature_calibration | ÷10 °C, -2.0–2.0 (read/write) |
+| 104 | value | humidity_calibration | -30–30 % (read/write) |
+| 105 | value | pressure_intensity | 0–2000 (read/write) |
+| 106 | value | presence_delay | 0–3600 s (read/write) |
+| 107 | value | sedentary_reminder | 0–1440 min (read/write) |
+
+The ZG-210Z also reports the standard ZCL Temperature (0402), Humidity (0405) and Power Configuration (0001) attributes, which the driver parses too.
+
 ## Known limitations
 
 - This is a sleepy battery device. If a saved setting is not applied, wake the device by pressing the strap or briefly pressing the button. **Refresh** is also only answered while the device is awake.
-- DP 12 is exposed as illuminance following Z2M, but whether it is a real light reading still needs to be confirmed.
+- The device page shows the settings of both models, but only those of the detected model are applied.
+- DP 12 (seq9cm6u) is exposed as illuminance following Z2M, but whether it is a real light reading still needs to be confirmed.
 
 ## Credits
 
-- DP definitions: [Koenkk/zigbee-herdsman-converters](https://github.com/Koenkk/zigbee-herdsman-converters) `TS0601_bed_presence_sensor`
+- DP definitions: [Koenkk/zigbee-herdsman-converters](https://github.com/Koenkk/zigbee-herdsman-converters) `TS0601_bed_presence_sensor`, `ZG-210Z`
