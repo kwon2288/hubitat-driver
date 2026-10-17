@@ -8,7 +8,8 @@ Tuya TS0601 압력 스트랩형 재실 센서(`_TZE200_seq9cm6u`)를 Hubitat Ele
 
 | 모델 | 제조사 코드 | 비고 |
 |---|---|---|
-| TS0601 | `_TZE200_seq9cm6u` | Z2M 모델명 `TS0601_bed_presence_sensor` |
+| TS0601 | `_TZE200_seq9cm6u` | Z2M 모델명 `TS0601_bed_presence_sensor` — `tuya-bed-presence-sensor.groovy` |
+| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | 압력 스트랩 + 온습도 센서 — `hobeian-zg-210z-pressure-sensor.groovy` |
 
 페어링 지문(fingerprint):
 
@@ -33,7 +34,8 @@ tuya-bed-presence/
 ├── README.md
 ├── README.en.md
 └── drivers/
-    └── tuya-bed-presence-sensor.groovy
+    ├── tuya-bed-presence-sensor.groovy
+    └── hobeian-zg-210z-pressure-sensor.groovy
 ```
 
 ## 설치

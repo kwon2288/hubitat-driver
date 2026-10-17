@@ -8,7 +8,8 @@ A Hubitat Elevation driver for the Tuya TS0601 pressure-strap occupancy sensor (
 
 | Model | Manufacturer | Notes |
 |---|---|---|
-| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` |
+| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` — `tuya-bed-presence-sensor.groovy` |
+| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | Pressure strap with temperature/humidity — `hobeian-zg-210z-pressure-sensor.groovy` |
 
 Fingerprint:
 
