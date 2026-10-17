@@ -37,7 +37,7 @@ plus a locally-calculated EPA AQI.
 |---|---|
 | IP Address | Local IP of the Awair Omni device |
 | API Path | Defaults to `/air-data/latest` |
-| Polling interval | Seconds between checks (default 300) |
+| Polling interval | Seconds between checks (default 300). Multiples of 60 (60s, 300s, ...) run on a cron schedule, so one failed run does not stop auto-refresh |
 
 ## Installation
 
