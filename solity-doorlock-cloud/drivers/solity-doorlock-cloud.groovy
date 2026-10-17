@@ -19,6 +19,9 @@
  *   - 도어락이 응답하지 않으면 1분 → 2분 → 5분(이후 5분마다) 간격으로 다시 조회.
  *
  *  Author : kwon2288
+ *  Version: 1.2.4 (2026-10-17)
+ *    - CHG: 열림 로그 폴링(retrieveLog)을 비동기 HTTP 로 — 10초마다 허브 스레드를 붙잡던 부하 제거
+ *           (401/403 재로그인은 콜백 안에서 처리, 이전 요청이 진행 중이면 겹쳐 보내지 않음)
  *  Version: 1.2.3 (2026-10-15)
  *    - FIX: 속성 비교 시 허브 캐시를 건너뛰고 실제 현재값을 읽음 (currentValue(name, true))
  *           — 캐시가 늦어 confirmed/contact 이벤트가 빠지던 문제
@@ -694,25 +697,66 @@ private recoverResult(boolean ok) {
 //  retrieveLog — 열림 감지 (도어락 안 깨움)
 // ─────────────────────────────────────────────────────────────
 
-/** ⚠️ 쿼리는 반드시 query 맵으로 (path 에 붙이면 '?' 가 %3F 로 인코딩됨) */
-private fetchLogs(int length, Closure cb) {
+/**
+ * 비동기 호출 (허브 스레드를 붙잡지 않음). 결과는 logResp(resp, data) 에서 data.kind 로 분기.
+ * ⚠️ 쿼리는 반드시 query 맵으로 (path 에 붙이면 '?' 가 %3F 로 인코딩됨)
+ */
+private requestLogs(String kind, int length, Map extra = [:]) {
     String devId = resolvedDeviceId()
     if (!devId) return
-    Map q = [pMemberId: "", pLogType: "", pLogStart: "0", pLogLength: length.toString(), pTimezone: "+9:00"]
-    authed("GET", "/api_v2/retrieveLog/page/${devId}", null, { status, data ->
-        if (status != 200) return
-        def logs = data?.contents?.retrieveLogList
-        if (!(logs instanceof List) || !logs) {
-            if (logEnable) log.debug "retrieveLog 결과 없음: ${data?.toString()?.take(200)}"
-            return
+    if (!canAuth()) return
+    if (!state.token && !doLogin()) return
+    Map params = [
+        uri: BASE_URL, path: "/api_v2/retrieveLog/page/${devId}",
+        headers: authHeaders(),
+        contentType: "application/json",
+        query: [pMemberId: "", pLogType: "", pLogStart: "0", pLogLength: length.toString(), pTimezone: "+9:00"],
+        timeout: QUICK_TIMEOUT
+    ]
+    state.logBusyAt = now()
+    asynchttpGet("logResp", params, extra + [kind: kind, length: length])
+}
+
+def logResp(resp, Map data) {
+    state.remove("logBusyAt")
+    int sc = 0
+    try { sc = resp.status as int } catch (ignored) { }
+    if (sc in [401, 403] && !data.retried) {
+        if (isTakeover()) { markSessionTaken(); return }
+        if (logEnable) log.debug "retrieveLog → ${sc}, 재로그인"
+        if (doLogin()) { requestLogs(data.kind, data.length as int, data + [retried: true]) }
+        return
+    }
+    if (sc != 200) {
+        if (sc in [401, 403]) sendEvent(name: "apiStatus", value: "auth_failed")
+        if (logEnable) log.debug "retrieveLog(${data.kind}) 실패: HTTP ${sc}"
+        return
+    }
+    def logs = null
+    try {
+        logs = toJson(resp.getData())?.contents?.retrieveLogList
+    } catch (e) {
+        if (logEnable) log.debug "retrieveLog 파싱 실패: ${e.message}"
+    }
+    if (!(logs instanceof List) || !logs) {
+        if (logEnable) log.debug "retrieveLog 결과 없음"
+        return
+    }
+    if (data.kind == "diagnose") {
+        logs.each {
+            log.info "  로그: dt=${it.logDateTime} code=${it.logCode} mediaType=${it.mediaType} " +
+                     "(${MEDIA_TYPES[it.mediaType?.toString()] ?: '?'}) nick=${it.nickname} msg=${it.logMessage}"
         }
-        cb(logs)
-    }, QUICK_TIMEOUT, q)
+    } else {
+        handleLogs(logs)
+    }
 }
 
 def pollLog() {
     if (!canAuth()) return
-    fetchLogs(20) { List logs -> handleLogs(logs) }
+    // 이전 요청이 아직 진행 중이면 겹쳐 보내지 않음 (응답 콜백을 잃은 경우는 타임아웃 후 재시도)
+    if (state.logBusyAt && now() - (state.logBusyAt as long) < (QUICK_TIMEOUT + 5) * 1000L) return
+    requestLogs("poll", 20)
 }
 
 /** logs 는 최신순. 마지막으로 본 시각 이후 항목을 오래된 것부터 처리. */
@@ -906,12 +950,7 @@ def diagnose() {
     log.info "마지막 상태조회: ${state.lastStatusAt ?: '(없음)'}"
     log.info "마지막 로그DT : ${state.lastLogDt ?: '(없음)'}"
     log.info "=================="
-    fetchLogs(5) { List logs ->
-        logs.each {
-            log.info "  로그: dt=${it.logDateTime} code=${it.logCode} mediaType=${it.mediaType} " +
-                     "(${MEDIA_TYPES[it.mediaType?.toString()] ?: '?'}) nick=${it.nickname} msg=${it.logMessage}"
-        }
-    }
+    requestLogs("diagnose", 5)   // 결과는 logResp 에서 출력
     authed("GET", "/api_v2/myDevice", null) { status, data ->
         if (status == 200) {
             data?.contents?.myDeviceList?.each {
