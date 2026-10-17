@@ -57,6 +57,27 @@ void updated() {
     runIn(2, poll)
 }
 
+int getPollSeconds() {
+    return ((settings.pollingInterval ?: 300) as int)
+}
+
+boolean useCronPolling() {
+    int sec = getPollSeconds()
+    return sec >= 60 && sec % 60 == 0 && sec < 3600
+}
+
+// Cron keeps polling even if one poll run is lost; runIn chains only survive while each run re-arms itself
+void schedulePolling() {
+    unschedule("scheduledPoll")
+    if (useCronPolling()) {
+        schedule("0 0/${(int) (getPollSeconds() / 60)} * * * ?", "scheduledPoll")
+    }
+}
+
+void scheduledPoll() {
+    poll()
+}
+
 // Builds the base URI from the IP preference, tolerating whitespace, a pasted scheme or a trailing slash
 String getBaseUri() {
     String host = (settings.ip ?: "").toString().trim()
@@ -91,6 +112,7 @@ def initialize() {
     fireUpdate_small("co2_desc", "unknown")
     fireUpdate_small("pm25_desc", "unknown")
 
+    schedulePolling()
     runIn(2, poll)
 }
 
@@ -117,7 +139,7 @@ def configure() {
         }
     }
 
-    runIn(pollingInterval, poll)
+    schedulePolling()
 }
 
 def logsOff() {
@@ -174,7 +196,8 @@ def poll() {
         }
     }
 
-    runIn(pollingInterval, poll)
+    // Whole-minute intervals use a cron schedule (independent of earlier runs); others re-arm runIn
+    if (!useCronPolling()) runIn(getPollSeconds(), poll)
 }
 
 def receiveData(response, data) {
