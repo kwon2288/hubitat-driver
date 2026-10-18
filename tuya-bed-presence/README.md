@@ -6,10 +6,10 @@ Tuya TS0601 압력 스트랩형 재실 센서 두 종(`_TZE200_seq9cm6u`, HOBEIA
 
 ## 지원 기기
 
-| 모델 | 제조사 코드 | 비고 |
-|---|---|---|
-| TS0601 | `_TZE200_seq9cm6u` | Z2M 모델명 `TS0601_bed_presence_sensor` |
-| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | 압력 스트랩 + 온습도 센서 |
+| 모델 | 제조사 코드 | 비고 | 구매 링크 |
+|---|---|---|---|
+| TS0601 | `_TZE200_seq9cm6u` | Z2M 모델명 `TS0601_bed_presence_sensor` | [AliExpress](https://www.aliexpress.com/item/1005013229135312.html) |
+| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | 압력 스트랩 + 온습도 센서 | [AliExpress](https://www.aliexpress.com/item/1005012085353795.html) |
 
 페어링 지문(fingerprint):
 
