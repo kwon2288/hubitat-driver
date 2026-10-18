@@ -198,7 +198,7 @@ def updated() {
 
         // Apply a new threshold right away instead of waiting for the next report
         def cp = device.currentValue("currentPressure")
-        if (settings.threshold != null && cp != null) evaluate(cp as int)
+        if (settings.threshold != null && cp != null) evaluateThreshold(cp as int)
         return
     }
 
@@ -396,12 +396,12 @@ private void processDpZg210z(int dp, int type, long v) {
         case 1:
             String state = PRESSURE_STATE[(int) v] ?: "unknown(${v})"
             emit("pressureState", state)
-            // With a detection threshold set, presence comes from evaluate()
+            // With a detection threshold set, presence comes from evaluateThreshold()
             if (settings.threshold == null) setPresence(v == 1L || v == 2L)
             break
         case 2:
             emit("currentPressure", (int) v)
-            if (settings.threshold != null) evaluate((int) v)
+            if (settings.threshold != null) evaluateThreshold((int) v)
             break
         case 15:
             emit("battery", (int) v, "%")
@@ -431,7 +431,7 @@ private void processDpZg210z(int dp, int type, long v) {
 }
 
 /* ZG-210Z driver-side detection: fixed hysteresis, absence honours the "not present" delay */
-private void evaluate(int cp) {
+private void evaluateThreshold(int cp) {
     int th = settings.threshold as int
     boolean present = device.currentValue("presence") == "present"
     // Hysteresis: need th+H to become present, drop below th-H to start leaving
