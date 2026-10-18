@@ -8,8 +8,8 @@ A single Hubitat Elevation driver for two Tuya TS0601 pressure-strap occupancy s
 
 | Model | Manufacturer | Notes | Where to buy |
 |---|---|---|---|
-| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` | [AliExpress](https://www.aliexpress.com/item/1005013229135312.html) |
-| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | Pressure strap with temperature/humidity | [AliExpress](https://www.aliexpress.com/item/1005012085353795.html) |
+| TS0601 | `_TZE200_seq9cm6u` | Z2M model `TS0601_bed_presence_sensor` | [AliExpress](https://www.aliexpress.com/item/1005012085353795.html) |
+| ZG-210Z (HOBEIAN) | `_TZE200_ihizzpzn` | Pressure strap with temperature/humidity | [AliExpress](https://www.aliexpress.com/item/1005013229135312.html) |
 
 Fingerprints:
 
