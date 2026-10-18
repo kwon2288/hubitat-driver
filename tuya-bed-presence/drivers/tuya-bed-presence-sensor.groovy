@@ -41,6 +41,8 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.1
+ *    - FIX: rename evaluate() (clashed with Script.evaluate on Hubitat, compile error)
  *  Version: 1.3.0
  *    - CHG (ZG-210Z): simplified preferences — one detection threshold, one "not present" delay,
  *      temperature/humidity calibration. Removed detection mode, hysteresis, invert, firmware
@@ -61,7 +63,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.0"
+@Field static final String VERSION = "1.3.1"
 
 // ZG-210Z driver-side detection: fixed hysteresis so values hovering at the threshold do not flicker
 @Field static final int HYSTERESIS = 20
@@ -198,7 +200,7 @@ def updated() {
 
         // Apply a new threshold right away instead of waiting for the next report
         def cp = device.currentValue("currentPressure")
-        if (settings.threshold != null && cp != null) evaluateThreshold(cp as int)
+        if (settings.threshold != null && cp != null) evaluatePressure(cp as int)
         return
     }
 
@@ -396,12 +398,12 @@ private void processDpZg210z(int dp, int type, long v) {
         case 1:
             String state = PRESSURE_STATE[(int) v] ?: "unknown(${v})"
             emit("pressureState", state)
-            // With a detection threshold set, presence comes from evaluateThreshold()
+            // With a detection threshold set, presence comes from evaluatePressure()
             if (settings.threshold == null) setPresence(v == 1L || v == 2L)
             break
         case 2:
             emit("currentPressure", (int) v)
-            if (settings.threshold != null) evaluateThreshold((int) v)
+            if (settings.threshold != null) evaluatePressure((int) v)
             break
         case 15:
             emit("battery", (int) v, "%")
@@ -431,7 +433,7 @@ private void processDpZg210z(int dp, int type, long v) {
 }
 
 /* ZG-210Z driver-side detection: fixed hysteresis, absence honours the "not present" delay */
-private void evaluateThreshold(int cp) {
+private void evaluatePressure(int cp) {
     int th = settings.threshold as int
     boolean present = device.currentValue("presence") == "present"
     // Hysteresis: need th+H to become present, drop below th-H to start leaving
