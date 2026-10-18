@@ -53,7 +53,11 @@ tuya-bed-presence/
 | Sampling interval | 5–720분 (5분 단위) | 샘플링 주기. 5의 배수가 아니면 가장 가까운 값으로 보정 (seq9cm6u) |
 | Delay before reporting 'not present' | 0–3600초 | 압력이 사라진 뒤 비재실로 보고하기까지의 지연 (두 기종 공통) |
 | Delay before reporting 'present' | 0–3600초 | 압력이 감지된 뒤 재실로 보고하기까지의 지연 (seq9cm6u) |
-| Pressure intensity threshold | 0–2000 | 재실로 판단하는 압력 임계값 (ZG-210Z) |
+| Presence detection source | device / driver | ZG-210Z 재실 판단 주체. `device`=기기 펌웨어의 `pressure_state`, `driver`=드라이버가 `currentPressure`를 로컬 임계값으로 판단 |
+| Driver mode: occupied threshold | 숫자 | driver 모드의 재실 임계값(`currentPressure` 기준). 빈 상태와 눌린 상태의 값을 보고 중간값 지정 (ZG-210Z) |
+| Driver mode: hysteresis | 0–500 | driver 모드의 히스테리시스 (ZG-210Z) |
+| Driver mode: occupied when BELOW threshold | on / off | 임계값보다 낮을 때 재실로 볼지 (ZG-210Z) |
+| Pressure intensity threshold | 0–2000 | 기기 펌웨어의 재실 압력 임계값 (ZG-210Z, device 모드) |
 | Sedentary reminder time | 0–1440분 | 장시간 앉아 있음 알림 시간 (ZG-210Z) |
 | Temperature calibration | -2.0–2.0 °C | 온도 보정 (ZG-210Z) |
 | Humidity calibration | -30–30 % | 습도 보정 (ZG-210Z) |
@@ -61,6 +65,12 @@ tuya-bed-presence/
 | Mirror presence to motion | on / off | `motion` 속성 동시 보고 여부 |
 
 설정값은 기기가 마지막으로 보고한 값과 다를 때만 전송됩니다.
+
+### ZG-210Z 전용 동작
+
+- **보류 설정 큐**: 잠든 기기는 쓰기를 놓치는 경우가 많아서, 변경한 설정은 기기가 같은 값을 다시 보고(에코)할 때까지 보류 상태(`pendingSettings`)로 두고 기기가 깨어나 보고할 때마다 재전송합니다(20초 간격 제한, 최대 15회).
+- **driver 모드**: 펌웨어 임계값(DP 105)이 실제 하중을 잘 따라가지 못할 때(예: 캣타워 위의 가벼운 고양이) `currentPressure`를 드라이버가 로컬 임계값·히스테리시스로 판단합니다. 비재실 전환은 `presenceDelay`만큼 지연되며, 그동안 압력이 돌아오면 취소됩니다.
+- **`setPressureIntensity` 명령**: 펌웨어 임계값(0–2000)을 설정하고 보류 큐로 전송합니다.
 
 ## 속성
 
@@ -81,6 +91,7 @@ tuya-bed-presence/
 | `pressureIntensity` | 임계값 (ZG-210Z) |
 | `sedentaryReminder` | 분 (ZG-210Z) |
 | `temperatureCalibration` / `humidityCalibration` | 보정값 (ZG-210Z) |
+| `pendingSettings` | 기기가 아직 확인하지 않은 보류 설정 (ZG-210Z), 없으면 `none` |
 | `lastPresenceChange` | yyyy-MM-dd HH:mm:ss |
 
 ## Tuya DP 맵

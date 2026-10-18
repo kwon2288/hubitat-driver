@@ -34,6 +34,17 @@
  *
  *  Tuya EF00 frame: seq(2) | dp(1) | type(1) | len(2) | data(len) [| next dp ...]
  *
+ *  ZG-210Z detection modes (preference "Presence detection source"):
+ *    device  - trust DP1 (pressure_state) computed by the device firmware
+ *    driver  - compute presence in the driver from DP2 (current_pressure) against a local
+ *              threshold with hysteresis. Use this when the firmware threshold (DP105)
+ *              does not track the real load (e.g. a light pet on a cat tower).
+ *
+ *  Version: 1.2.0
+ *    - NEW (ZG-210Z): driver-side detection mode (local threshold + hysteresis + delay)
+ *    - NEW (ZG-210Z): settings are kept in a pending queue, re-sent each time the sleepy device
+ *      reports, and confirmed by its echo (pendingSettings attribute)
+ *    - NEW (ZG-210Z): setPressureIntensity command
  *  Version: 1.1.0
  *    - NEW: HOBEIAN ZG-210Z (_TZE200_ihizzpzn) support in the same driver
  *    - CHG: Tuya value DPs are encoded as two's-complement 32-bit (negative calibration values)
@@ -45,7 +56,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.1.0"
+@Field static final String VERSION = "1.2.0"
 
 @Field static final String MFR_SEQ9 = "_TZE200_seq9cm6u"
 @Field static final String MFR_ZG210Z = "_TZE200_ihizzpzn"
@@ -85,6 +96,8 @@ metadata {
         capability "Refresh"
         capability "Configuration"
 
+        command "setPressureIntensity", [[name: "value*", type: "NUMBER", description: "ZG-210Z firmware threshold, 0-2000"]]
+
         attribute "lastPresenceChange", "string"
 
         // _TZE200_seq9cm6u
@@ -100,6 +113,7 @@ metadata {
         attribute "sedentaryReminder", "number"
         attribute "temperatureCalibration", "number"
         attribute "humidityCalibration", "number"
+        attribute "pendingSettings", "string"
 
         // both
         attribute "presenceDelay", "number"
@@ -122,7 +136,16 @@ metadata {
               range: "0..3600", required: false
         input name: "presenceDelayPref", type: "number", title: "Delay before reporting 'not present' (s, 0-3600)",
               range: "0..3600", required: false
-        input name: "pressureIntensityPref", type: "number", title: "Pressure intensity threshold (0-2000; ZG-210Z only)",
+        input name: "detectionMode", type: "enum", title: "Presence detection source (ZG-210Z only)",
+              options: ["device": "Device (firmware pressure_state)", "driver": "Driver (currentPressure vs local threshold)"],
+              defaultValue: "device"
+        input name: "localThreshold", type: "number", title: "Driver mode: occupied threshold (currentPressure; ZG-210Z only)",
+              description: "Watch currentPressure empty vs. loaded and pick a value in between", required: false
+        input name: "localHysteresis", type: "number", title: "Driver mode: hysteresis (ZG-210Z only)", defaultValue: 30,
+              range: "0..500"
+        input name: "localInvert", type: "bool", title: "Driver mode: occupied when currentPressure is BELOW threshold (ZG-210Z only)",
+              defaultValue: false
+        input name: "pressureIntensityPref", type: "number", title: "Device mode: firmware threshold (0-2000; ZG-210Z only)",
               description: "Sensing value at which the strap counts as occupied", range: "0..2000", required: false
         input name: "sedentaryReminderPref", type: "number", title: "Sedentary reminder time (min, 0-1440; ZG-210Z only)",
               range: "0..1440", required: false
@@ -168,24 +191,33 @@ def updated() {
         device.deleteCurrentState("motion")
     }
 
+    if (isZg210z()) {
+        // Sleepy device: changes go through the pending queue (re-sent until the device echoes them)
+        queuePref(105, "pressureIntensityPref", "pressureIntensity", 0, 2000, 1)
+        queuePref(106, "presenceDelayPref", "presenceDelay", 0, 3600, 1)
+        queuePref(107, "sedentaryReminderPref", "sedentaryReminder", 0, 1440, 1)
+        queuePref(103, "tempCalPref", "temperatureCalibration", -2, 2, 10)
+        queuePref(104, "humCalPref", "humidityCalibration", -30, 30, 1)
+        flushPending(true)
+
+        // Re-evaluate presence immediately when switching to / tuning driver mode
+        if (settings.detectionMode == "driver") {
+            def cp = device.currentValue("currentPressure")
+            if (cp != null) evaluateLocal(cp as int)
+        }
+        return
+    }
+
     List<String> cmds = []
 
     // Only push values that differ from what the device last reported
-    if (isZg210z()) {
-        cmds += valuePrefCommand(105, "pressureIntensityPref", "pressureIntensity", 0, 2000, 1)
-        cmds += valuePrefCommand(106, "presenceDelayPref", "presenceDelay", 0, 3600, 1)
-        cmds += valuePrefCommand(107, "sedentaryReminderPref", "sedentaryReminder", 0, 1440, 1)
-        cmds += valuePrefCommand(103, "tempCalPref", "temperatureCalibration", -2, 2, 10)
-        cmds += valuePrefCommand(104, "humCalPref", "humidityCalibration", -30, 30, 1)
-    } else {
-        if (settings.sensitivityPref != null && settings.sensitivityPref != device.currentValue("sensitivity")) {
-            Integer v = SENSITIVITY.find { it.value == settings.sensitivityPref }?.key
-            if (v != null) cmds += tuyaCommand(9, DP_TYPE_ENUM, v)
-        }
-        cmds += valuePrefCommand(101, "intervalTimePref", "intervalTime", 5, 720, 1, 5)
-        cmds += valuePrefCommand(102, "presenceDelayPref", "presenceDelay", 0, 3600, 1)
-        cmds += valuePrefCommand(103, "presenceTimePref", "presenceTime", 0, 3600, 1)
+    if (settings.sensitivityPref != null && settings.sensitivityPref != device.currentValue("sensitivity")) {
+        Integer v = SENSITIVITY.find { it.value == settings.sensitivityPref }?.key
+        if (v != null) cmds += tuyaCommand(9, DP_TYPE_ENUM, v)
     }
+    cmds += valuePrefCommand(101, "intervalTimePref", "intervalTime", 5, 720, 1, 5)
+    cmds += valuePrefCommand(102, "presenceDelayPref", "presenceDelay", 0, 3600, 1)
+    cmds += valuePrefCommand(103, "presenceTimePref", "presenceTime", 0, 3600, 1)
 
     if (cmds) {
         logInfo "sending ${cmds.size()} setting change(s) — battery device, press the strap to wake it if nothing is applied"
@@ -193,6 +225,23 @@ def updated() {
     } else {
         logDebug "no setting changes to send"
     }
+}
+
+def setPressureIntensity(value) {
+    if (!isZg210z()) {
+        log.warn "${device.displayName} setPressureIntensity is only supported on the ZG-210Z"
+        return
+    }
+    Integer v = value as Integer
+    if (v == null || v < 0 || v > 2000) {
+        log.warn "${device.displayName} setPressureIntensity: ${value} is out of range 0..2000"
+        return
+    }
+    device.updateSetting("pressureIntensityPref", [value: v, type: "number"])
+    Map p = pendingMap()
+    p["105"] = v
+    savePending(p)
+    flushPending(true)
 }
 
 def configure() {
@@ -272,6 +321,7 @@ private void parseTuyaCommand(Map descMap) {
         case "02":  // data report
         case "06":  // proactive report
             parseTuyaData(descMap.data)
+            flushPending(false)
             break
         case "24":  // device requests time sync
             syncTime()
@@ -326,6 +376,7 @@ private void parseTuyaData(List<String> data) {
 
 private void processDp(int dp, int type, long v) {
     logDebug "DP ${dp} (type ${type}) = ${v}"
+    confirmPending(dp, v)
     if (isZg210z()) processDpZg210z(dp, type, v)
     else processDpSeq9(dp, type, v)
 }
@@ -368,10 +419,14 @@ private void processDpZg210z(int dp, int type, long v) {
         case 1:
             String state = PRESSURE_STATE[(int) v] ?: "unknown(${v})"
             emit("pressureState", state)
-            setPresence((v == 1L) || (v == 2L && settings.sedentaryIsPresent != false))
+            // In driver mode presence comes from evaluateLocal()
+            if (settings.detectionMode != "driver") {
+                setPresence((v == 1L) || (v == 2L && settings.sedentaryIsPresent != false))
+            }
             break
         case 2:
             emit("currentPressure", (int) v)
+            if (settings.detectionMode == "driver") evaluateLocal((int) v)
             break
         case 15:
             emit("battery", (int) v, "%")
@@ -400,6 +455,53 @@ private void processDpZg210z(int dp, int type, long v) {
         default:
             logInfo "unknown DP ${dp} (type ${type}) = ${v}"
     }
+}
+
+/* ZG-210Z driver-side detection with hysteresis; absence honours presenceDelay locally */
+private void evaluateLocal(int cp) {
+    if (settings.localThreshold == null) {
+        logDebug "driver mode: localThreshold not set, skipping"
+        return
+    }
+    int th = settings.localThreshold as int
+    int hy = (settings.localHysteresis ?: 0) as int
+    boolean invert = settings.localInvert == true
+    boolean wasOccupied = device.currentValue("presence") == "present"
+
+    // Distance into the "occupied" side of the threshold
+    int d = invert ? (th - cp) : (cp - th)
+    boolean occupied = wasOccupied ? (d > -hy) : (d >= hy)
+    logDebug "driver mode: currentPressure=${cp} threshold=${th}±${hy} invert=${invert} -> ${occupied ? 'occupied' : 'vacant'}"
+
+    if (occupied) {
+        unschedule("localVacant")
+        state.vacantPending = false
+        setPresence(true)
+    } else if (wasOccupied) {
+        int delay = ((settings.presenceDelayPref ?: device.currentValue("presenceDelay") ?: 0) as int)
+        if (delay > 0) {
+            // Schedule once; later vacant reports must not keep pushing the timer back
+            if (!state.vacantPending) {
+                state.vacantPending = true
+                runIn(delay, "localVacant")
+            }
+        } else {
+            setPresence(false)
+        }
+    }
+}
+
+def localVacant() {
+    state.vacantPending = false
+    // Re-check: pressure may have come back during the delay
+    def cp = device.currentValue("currentPressure")
+    if (cp != null && settings.localThreshold != null) {
+        int th = settings.localThreshold as int
+        int hy = (settings.localHysteresis ?: 0) as int
+        int d = (settings.localInvert == true) ? (th - (cp as int)) : ((cp as int) - th)
+        if (d > -hy) return
+    }
+    setPresence(false)
 }
 
 private void setPresence(boolean occupied) {
@@ -439,8 +541,75 @@ private void emit(String name, def value, String unit = null) {
 /* Outgoing commands                                                  */
 /* ------------------------------------------------------------------ */
 
+/* ---- Pending write queue (ZG-210Z) ---------------------------------
+ * Sleepy Tuya devices often drop a write sent while they are asleep, so every
+ * change is kept in state.pending until the device echoes the new value back.
+ * It is re-sent each time the device reports (i.e. while it is awake).
+ */
+private Map pendingMap() {
+    return (state.pending ?: [:]) as Map
+}
+
+private void savePending(Map p) {
+    state.pending = p
+    sendEvent(name: "pendingSettings", value: p ? p.collect { k, v -> "DP${k}=${v}" }.join(", ") : "none")
+}
+
+private void queuePref(int dp, String prefName, String attrName, Number minN, Number maxN, int scale) {
+    def raw = settings[prefName]
+    if (raw == null) return
+    BigDecimal v = raw as BigDecimal
+    if (v < (minN as BigDecimal) || v > (maxN as BigDecimal)) {
+        log.warn "${device.displayName} ${prefName}=${v} is out of range ${minN}..${maxN}, ignored"
+        return
+    }
+    int deviceValue = (v * scale).setScale(0, java.math.RoundingMode.HALF_UP).intValue()
+    def current = device.currentValue(attrName)
+    if (current != null) {
+        int currentDeviceValue = ((current as BigDecimal) * scale).setScale(0, java.math.RoundingMode.HALF_UP).intValue()
+        if (currentDeviceValue == deviceValue) return
+    }
+    Map p = pendingMap()
+    p[dp.toString()] = deviceValue
+    savePending(p)
+}
+
+private void flushPending(boolean force) {
+    Map p = pendingMap()
+    if (!p) return
+    // Throttle re-sends to once every 20 s while the device keeps reporting
+    long last = (state.lastFlush ?: 0L) as long
+    if (!force && now() - last < 20000L) return
+    state.lastFlush = now()
+
+    int tries = ((state.pendingTries ?: 0) as int) + 1
+    state.pendingTries = tries
+    if (tries > 15) {
+        log.warn "${device.displayName} device never confirmed ${p} after ${tries - 1} attempts — giving up"
+        state.pendingTries = 0
+        savePending([:])
+        return
+    }
+    List<String> cmds = []
+    p.each { k, v -> cmds += tuyaCommand(k as int, DP_TYPE_VALUE, v as int) }
+    logInfo "sending pending setting(s) ${p} (attempt ${tries})"
+    sendZigbeeCommands(cmds)
+}
+
+private void confirmPending(int dp, long v) {
+    Map p = pendingMap()
+    String key = dp.toString()
+    if (!p.containsKey(key)) return
+    if ((p[key] as long) == v) {
+        p.remove(key)
+        logInfo "device confirmed DP${dp}=${v}"
+        if (!p) state.pendingTries = 0
+        savePending(p)
+    }
+}
+
 /**
- * Build a Tuya value-DP set command from a preference.
+ * Build a Tuya value-DP set command from a preference (seq9cm6u: sent immediately).
  * scale: multiplier applied before sending (e.g. 10 for a /10 DP); min/max are in user units.
  * step: if > 1, the value is rounded to the nearest multiple of step (user units).
  */
