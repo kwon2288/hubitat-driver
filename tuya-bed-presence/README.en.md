@@ -51,26 +51,20 @@ tuya-bed-presence/
 |---|---|---|
 | Sensitivity | low / middle / high | Pressure detection sensitivity (seq9cm6u) |
 | Sampling interval | 5–720 min (step 5) | Sampling interval; non-multiples of 5 are rounded (seq9cm6u) |
-| Delay before reporting 'not present' | 0–3600 s | Delay after pressure is released before reporting absence (both models) |
+| Delay before reporting 'not present' | 0–3600 s | Delay after pressure is released before reporting absence (both models; ZG-210Z defaults to 5 s when unset) |
 | Delay before reporting 'present' | 0–3600 s | Delay after pressure is detected before reporting presence (seq9cm6u) |
-| Presence detection source | device / driver | ZG-210Z only. `device` = firmware `pressure_state`; `driver` = the driver judges `currentPressure` against a local threshold |
-| Driver mode: occupied threshold | number | Occupied threshold on `currentPressure` in driver mode; pick a value between the empty and loaded readings (ZG-210Z) |
-| Driver mode: hysteresis | 0–500 | Hysteresis for driver mode (ZG-210Z) |
-| Driver mode: occupied when BELOW threshold | on / off | Treat readings below the threshold as occupied (ZG-210Z) |
-| Pressure intensity threshold | 0–2000 | Firmware occupied threshold (ZG-210Z, device mode) |
-| Sedentary reminder time | 0–1440 min | Prolonged-sitting reminder time (ZG-210Z) |
+| Detection threshold / 감지 기준값 | number | Present when `currentPressure` is at or above this value (ZG-210Z). Leave blank to use the device's own judgement (`pressure_state`). Fixed hysteresis ±20 |
 | Temperature calibration | -2.0–2.0 °C | (ZG-210Z) |
 | Humidity calibration | -30–30 % | (ZG-210Z) |
-| Treat 'sedentary' as present | on / off | Whether the `sedentary` state counts as present (ZG-210Z) |
 | Mirror presence to motion | on / off | Whether to also report the `motion` attribute |
 
 A setting is only sent when it differs from the value the device last reported.
 
 ### ZG-210Z specifics
 
-- **Pending write queue**: a sleepy device often drops a write sent while it is asleep, so each change is kept as pending (`pendingSettings`) until the device echoes the new value, and is re-sent every time the device reports (throttled to once per 20 s, at most 15 attempts).
-- **Driver mode**: when the firmware threshold (DP 105) does not track the real load (e.g. a light cat on a cat tower), the driver judges `currentPressure` against a local threshold with hysteresis. Going vacant honours `presenceDelay` and is cancelled if pressure comes back during the delay.
-- **`setPressureIntensity` command**: sets the firmware threshold (0–2000) through the pending queue.
+- **Presence**: with a detection threshold set, the driver reports present when `currentPressure >= threshold` (fixed ±20 hysteresis). Going back to not present waits for the "not present" delay and is cancelled if pressure returns. Leave the threshold blank to use the device's own judgement (DP 1). The firmware threshold (DP 105) does not track the real load well, so it is not used.
+- **Pending write queue**: a sleepy device often drops a write sent while it is asleep, so delay/calibration changes are kept as pending until the device echoes the value, and re-sent every time the device reports (throttled to once per 20 s, at most 15 attempts).
+- **Cleanup**: saving preferences removes the 1.2.0 attributes (`pressureIntensity`, `sedentaryReminder`, `pendingSettings`) and settings.
 
 ## Attributes
 
@@ -88,10 +82,7 @@ A setting is only sent when it differs from the value the device last reported.
 | `temperature` / `humidity` | °C (or °F) / % (ZG-210Z) |
 | `pressureState` | none, sit, sedentary (ZG-210Z) |
 | `currentPressure` | raw pressure value (ZG-210Z) |
-| `pressureIntensity` | threshold (ZG-210Z) |
-| `sedentaryReminder` | minutes (ZG-210Z) |
 | `temperatureCalibration` / `humidityCalibration` | calibration offsets (ZG-210Z) |
-| `pendingSettings` | Settings the device has not confirmed yet (ZG-210Z), `none` when empty |
 | `lastPresenceChange` | yyyy-MM-dd HH:mm:ss |
 
 ## Tuya DP map
