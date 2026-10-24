@@ -20,9 +20,9 @@ The Mealle has no public API and supports neither Matter, SmartThings, HomeKit, 
 - A Mealle registered to a VARRAM account
 - Internet access — the device is cloud-only, local control is not possible
 
-## Installation (Kakao ID version, recommended)
+## Installation
 
-If the account was created with Kakao login, a **Kakao ID alone** is enough; no mitmproxy token capture. The driver logs in by itself and auto-discovers User / Device / Pet IDs.
+If the account was created with Kakao login, a **Kakao ID alone** is enough; no token capture is needed. The driver logs in by itself and auto-discovers User / Device / Pet IDs.
 
 1. Hubitat → **Drivers Code** → **New Driver** → paste [`drivers/varram-mealle-feeder-kakao.groovy`](drivers/varram-mealle-feeder-kakao.groovy) → **Save**
 2. **Devices** → **Add Device** → **Virtual** → type `VARRAM Mealle Feeder Kakao`
@@ -33,14 +33,14 @@ If the account was created with Kakao login, a **Kakao ID alone** is enough; no 
 - Discovery: JWT `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - Fallback: if a token refresh fails with an HTTP error, the driver re-logs in with the Kakao ID (verified with HTTP 403). A rejection returned as HTTP 200 + `{"type":"fail"}` is not handled yet.
 - Per-slot time/gram/ON-OFF are fetched from the server automatically (no `seedSchedule` needed).
-- A fresh login may invalidate the official app's or the old driver's refresh token (unverified).
+- A fresh login may invalidate the official app's refresh token (unverified).
 - **Never commit the Kakao ID, tokens or passwords.**
 
 ### Finding your Kakao ID
 
 The Kakao ID is the numeric value (your Kakao member number) the app sends to the server at Kakao login. It is not shown anywhere in the app, so you read it from the login request. You only need to do this once.
 
-1. Set up mitmproxy as in [Obtaining credentials](#obtaining-credentials) (proxy setting, install and trust the `mitm.it` certificate).
+1. Set up mitmproxy as in [Preparing mitmproxy](#preparing-mitmproxy) (proxy setting, install and trust the `mitm.it` certificate).
 2. **Log out** of the VARRAM app. No login request is sent while you are still signed in.
 3. Fully close and reopen the app, then **log in with Kakao**.
 4. In mitmweb, find the `POST` to `auth.varram-robot.com/v2/auth/kakao` (type `kakao` in the filter box).
@@ -52,7 +52,7 @@ The Kakao ID is the numeric value (your Kakao member number) the app sends to th
 
 6. Paste only the number into the driver's `Kakao ID` preference.
 
-Note: logging out and in issues a new app session, which may invalidate the refresh token of a legacy token-based driver running alongside (unverified). The response also contains tokens, so never commit the capture file (`*.flows`).
+Note: logging out and in issues a new app session. The response also contains tokens, so never commit the capture file (`*.flows`).
 
 ### Accounts created with an email
 
@@ -64,36 +64,17 @@ For non-Kakao accounts, enter the **email and password** instead of the Kakao ID
 - The password is stored in plain text in Hubitat settings and backups. Use a VARRAM-only password.
 - A capture of an in-app login contains the password in clear text. Never put it in docs, the repo or the wiki.
 
-## Installation (legacy: token capture)
-
-
-1. Hubitat → **Drivers Code** → **New Driver**
-2. Paste [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) and **Save**
-3. **Devices** → **Add Device** → **Virtual** → select type `VARRAM Mealle Feeder`
-4. Fill in the settings below and **Save Preferences**
-
 > HPM (Hubitat Package Manager) is not supported.
 
-## Obtaining credentials
+## Preparing mitmproxy
 
-The driver authenticates exactly as the app does. Four values are required:
-
-| Field | Description |
-|---|---|
-| User ID | Account identifier |
-| Refresh Token | Long-lived token; rotates on every renewal |
-| Device ID | The feeder itself |
-| Pet ID | Used for feeding history (history is keyed by pet, not device) |
-
-The official app never displays these, so you must **capture the app's traffic yourself**.
+The Kakao ID is not shown in the app, so you read it from the login request.
 
 1. Run mitmproxy — `mitmweb --listen-port 8080 --set block_global=false`
 2. Set a manual proxy on your phone's Wi-Fi settings
 3. Visit `mitm.it` in Safari and install the certificate
 4. Enable the toggle under **Settings → General → About → Certificate Trust Settings** — skipping this leaves the app throwing certificate errors
-5. Force-quit and relaunch the app, then walk through login → device list → manual feed → feeding report
-
-Take `refresh_token` from the **response body** of `POST auth.varram-robot.com/token` and `user_id` from its request body. `device_id` and `pet_id` appear in the paths of `/get/mobile/info/feeder/{device_id}` and `/get/device/info/feed/v2/{pet_id}`.
+5. Force-quit and relaunch the app
 
 The app has no SSL pinning, so no bypass is needed.
 

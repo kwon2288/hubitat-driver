@@ -20,7 +20,7 @@
 - 바램펫 계정에 등록된 밀리 기기
 - 인터넷 연결 (클라우드 API 의존 — 로컬 제어 불가)
 
-## 설치 (Kakao ID 버전, 권장)
+## 설치
 
 카카오 계정으로 가입한 경우 mitmproxy 없이 **Kakao ID 하나**로 설정할 수 있습니다. 드라이버가 스스로 로그인해 User ID / Device ID / Pet ID를 자동으로 찾습니다.
 
@@ -33,14 +33,14 @@
 - 자동 검색: JWT의 `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - 폴백: refresh token 갱신이 실패(HTTP 오류)하면 Kakao ID로 자동 재로그인합니다. HTTP 403 상황에서 동작을 확인했습니다. 서버가 HTTP 200 + `{"type":"fail"}`로 거부하는 경우는 아직 처리하지 않습니다.
 - Kakao ID는 앱 트래픽 캡처에서 위 요청 본문으로 확인합니다. 슬롯별 시간/그램/ON·OFF는 서버에서 자동으로 가져옵니다(`seedSchedule` 입력 불필요).
-- 재로그인이 새 세션을 발급하면서 공식 앱이나 기존 드라이버의 토큰을 무효화할 수 있습니다(미검증).
+- 재로그인이 새 세션을 발급하면서 공식 앱의 토큰을 무효화할 수 있습니다(미검증).
 - **Kakao ID, 토큰, 비밀번호는 위키·GitHub에 기록하지 마세요.**
 
 ### Kakao ID 확인 방법
 
 Kakao ID는 카카오 로그인 시 앱이 서버로 보내는 숫자 값(카카오 회원번호)이며, 앱 화면에는 표시되지 않습니다. 로그인 요청을 캡처해서 확인합니다. 한 번만 하면 됩니다.
 
-1. 아래 [설정값 확보](#설정값-확보)와 같은 방법으로 mitmproxy를 준비합니다 (프록시 지정, `mitm.it` 인증서 설치 및 신뢰 설정).
+1. 아래 [mitmproxy 준비](#mitmproxy-준비) 방법으로 mitmproxy를 준비합니다 (프록시 지정, `mitm.it` 인증서 설치 및 신뢰 설정).
 2. 바램펫 앱에서 **로그아웃**합니다. 이미 로그인된 상태에서는 로그인 요청이 나가지 않습니다.
 3. 앱을 완전 종료 후 다시 실행하고 **카카오로 로그인**합니다.
 4. mitmweb에서 `auth.varram-robot.com/v2/auth/kakao`로 가는 `POST` 요청을 찾습니다. 필터창에 `kakao`를 입력하면 편합니다.
@@ -52,7 +52,7 @@ Kakao ID는 카카오 로그인 시 앱이 서버로 보내는 숫자 값(카카
 
 6. 드라이버의 `Kakao ID` preference에 숫자만 붙여 넣습니다.
 
-주의: 로그아웃/로그인으로 앱의 세션이 새로 발급되므로, 기존 드라이버(토큰 방식)를 같이 쓰고 있다면 그쪽 refresh token이 무효가 될 수 있습니다(미검증). 같은 응답에는 토큰도 들어 있으므로 캡처 파일(`*.flows`)은 커밋하지 마세요.
+주의: 로그아웃/로그인으로 앱의 세션이 새로 발급됩니다. 같은 응답에는 토큰도 들어 있으므로 캡처 파일(`*.flows`)은 커밋하지 마세요.
 
 ### 이메일 계정으로 가입한 경우
 
@@ -64,36 +64,17 @@ Kakao ID는 카카오 로그인 시 앱이 서버로 보내는 숫자 값(카카
 - 비밀번호는 Hubitat 설정과 백업에 평문으로 저장됩니다. 바램펫 전용 비밀번호를 쓰고, 다른 곳과 겹치지 않게 하세요.
 - 앱에서 로그인한 상태의 캡처 파일에는 비밀번호가 그대로 들어 있습니다. 문서·저장소·위키에 올리지 마세요.
 
-## 설치 (기존 방식: 토큰 캡처)
-
-
-1. Hubitat → **Drivers Code** → **New Driver**
-2. [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) 내용을 붙여넣고 **Save**
-3. **Devices** → **Add Device** → **Virtual** → Type에서 `VARRAM Mealle Feeder` 선택
-4. 아래 설정값 입력 후 **Save Preferences**
-
 > HPM(Hubitat Package Manager)은 지원하지 않습니다.
 
-## 설정값 확보
+## mitmproxy 준비
 
-드라이버는 앱과 동일한 방식으로 인증합니다. 다음 네 가지가 필요합니다.
-
-| 항목 | 설명 |
-|---|---|
-| User ID | 계정 식별자 |
-| Refresh Token | 장기 인증 토큰 (갱신 시 회전) |
-| Device ID | 밀리 본체 식별자 |
-| Pet ID | 급여 이력 조회용 (이력이 반려동물 기준으로 묶임) |
-
-공식 앱에 이 값을 보여주는 화면이 없으므로 **앱 트래픽을 직접 캡처해야 합니다.**
+Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처해서 확인합니다.
 
 1. mitmproxy 실행 — `mitmweb --listen-port 8080 --set block_global=false`
 2. 폰 Wi-Fi에 수동 프록시 지정
 3. Safari로 `mitm.it` 접속 → 인증서 설치
 4. **설정 → 일반 → 정보 → 인증서 신뢰 설정**에서 토글 ON (누락 시 앱이 인증서 오류를 냄)
-5. 앱을 완전 종료 후 재실행하고 로그인 → 기기 목록 → 수동 급여 → 냠냠리포트 순으로 조작
-
-`POST auth.varram-robot.com/token`의 **응답 본문**에서 `refresh_token`을, 요청 본문에서 `user_id`를 얻습니다. `device_id`와 `pet_id`는 각각 `/get/mobile/info/feeder/{device_id}`, `/get/device/info/feed/v2/{pet_id}` 경로에 나타납니다.
+5. 앱을 완전 종료 후 재실행
 
 앱에는 SSL pinning이 없어 별도 우회가 필요하지 않습니다.
 
@@ -177,7 +158,7 @@ Hubitat 텍스트 preference는 약 255자 제한이 있어 압축 포맷을 사
 
 - 실패 사유(사료부족 / 소량토출)를 구분하지 못합니다. 사용 중인 API 버전이 두 경우를 같은 상태값으로 반환합니다.
 - 클라우드 의존이므로 벤더 서버가 중단되면 함께 멈춥니다.
-- Refresh Token 사슬이 끊기면(앱 로그아웃, 비밀번호 변경 등) 재캡처가 필요합니다.
+- Refresh Token 사슬이 끊기면(앱 로그아웃, 비밀번호 변경 등) 드라이버가 Kakao ID 또는 이메일/비밀번호로 자동 재로그인합니다. 둘 다 비워 두면 재로그인할 수 없습니다.
 - 앱 업데이트로 API가 바뀌면 동작이 멈출 수 있습니다.
 
 ## 면책
