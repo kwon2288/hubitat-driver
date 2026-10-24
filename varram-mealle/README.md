@@ -24,8 +24,8 @@
 
 카카오 계정으로 가입한 경우 mitmproxy 없이 **Kakao ID 하나**로 설정할 수 있습니다. 드라이버가 스스로 로그인해 User ID / Device ID / Pet ID를 자동으로 찾습니다.
 
-1. Hubitat → **Drivers Code** → **New Driver** → [`drivers/varram-mealle-feeder-kakao.groovy`](drivers/varram-mealle-feeder-kakao.groovy) 붙여넣기 → **Save**
-2. **Devices** → **Add Device** → **Virtual** → Type `VARRAM Mealle Feeder Kakao`
+1. Hubitat → **Drivers Code** → **New Driver** → [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) 붙여넣기 → **Save**
+2. **Devices** → **Add Device** → **Virtual** → Type `VARRAM Mealle Feeder`
 3. `Kakao ID`를 입력하고 **Save Preferences** (스케줄은 서버에서 자동으로 가져옵니다)
 4. 로그에 `자동 검색: user=OK device=… pet=…`이 나오면 성공
 
@@ -56,7 +56,7 @@ Kakao ID는 카카오 로그인 시 앱이 서버로 보내는 숫자 값(카카
 
 ### 이메일 계정으로 가입한 경우
 
-카카오가 아닌 계정은 `Kakao ID` 대신 **이메일과 비밀번호**를 넣습니다. 같은 Kakao 드라이버(`VARRAM Mealle Feeder Kakao`)가 지원하며, Kakao ID가 비어 있을 때만 사용합니다.
+카카오가 아닌 계정은 `Kakao ID` 대신 **이메일과 비밀번호**를 넣습니다. 같은 드라이버(`VARRAM Mealle Feeder`)가 지원하며, Kakao ID가 비어 있을 때만 사용합니다.
 
 - 설정: `이메일`, `비밀번호` (두 항목 모두 입력), 나머지는 비워 둡니다.
 - 로그인: `POST auth.varram-robot.com/v2/login` — 폼 데이터 `email` + `password`. 이후 토큰, ID 자동 검색, 폴백(갱신 실패 시 재로그인)은 카카오와 같습니다.
@@ -94,9 +94,9 @@ Hubitat 텍스트 preference는 약 255자 제한이 있어 압축 포맷을 사
 
 저장 후 `getSchedule` 커맨드를 실행하면 `scheduleSummary`에 현재 상태가 표시됩니다. JSON 형식도 지원하지만 길이 때문에 preference에는 들어가지 않으므로 `importSchedule` 커맨드로 넘기세요.
 
-`seedSchedule`을 바꾸거나 `importSchedule`을 써도 **드라이버가 가진 스케줄만 바뀝니다.** 기기에 실제로 적용하려면 `pushSchedule`을 실행하세요 (Kakao 드라이버). 시간·그램을 바꿨다면 전송 후 앱의 스케줄 화면에서 확인하세요.
+`seedSchedule`을 바꾸거나 `importSchedule`을 써도 **드라이버가 가진 스케줄만 바뀝니다.** 기기에 실제로 적용하려면 `pushSchedule`을 실행하세요 (이 드라이버). 시간·그램을 바꿨다면 전송 후 앱의 스케줄 화면에서 확인하세요.
 
-서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), Kakao 드라이버는 시작할 때와 30분마다 서버에서 스케줄을 가져옵니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다. `seedSchedule`은 서버를 읽을 수 없을 때의 대체값이자, 새 스케줄을 직접 정해 `pushSchedule`로 보낼 때만 사용합니다. `readServerSchedule`은 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
+서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), 드라이버는 시작할 때와 30분마다 서버에서 스케줄을 가져옵니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다. `seedSchedule`은 서버를 읽을 수 없을 때의 대체값이자, 새 스케줄을 직접 정해 `pushSchedule`로 보낼 때만 사용합니다. `readServerSchedule`은 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
 
 ## 연결 방식
 

@@ -24,8 +24,8 @@ The Mealle has no public API and supports neither Matter, SmartThings, HomeKit, 
 
 If the account was created with Kakao login, a **Kakao ID alone** is enough; no token capture is needed. The driver logs in by itself and auto-discovers User / Device / Pet IDs.
 
-1. Hubitat → **Drivers Code** → **New Driver** → paste [`drivers/varram-mealle-feeder-kakao.groovy`](drivers/varram-mealle-feeder-kakao.groovy) → **Save**
-2. **Devices** → **Add Device** → **Virtual** → type `VARRAM Mealle Feeder Kakao`
+1. Hubitat → **Drivers Code** → **New Driver** → paste [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) → **Save**
+2. **Devices** → **Add Device** → **Virtual** → type `VARRAM Mealle Feeder`
 3. Enter `Kakao ID`, then **Save Preferences** (the schedule is fetched from the server automatically)
 4. Success looks like `자동 검색: user=OK device=… pet=…` in the log
 
@@ -56,7 +56,7 @@ Note: logging out and in issues a new app session. The response also contains to
 
 ### Accounts created with an email
 
-For non-Kakao accounts, enter the **email and password** instead of the Kakao ID. The same Kakao driver (`VARRAM Mealle Feeder Kakao`) handles it, and it is used only when the Kakao ID is empty.
+For non-Kakao accounts, enter the **email and password** instead of the Kakao ID. The same driver (`VARRAM Mealle Feeder`) handles it, and it is used only when the Kakao ID is empty.
 
 - Settings: `Email` and `Password` (both required); leave the rest empty.
 - Login: `POST auth.varram-robot.com/v2/login`, form fields `email` plus `password`. Tokens, ID discovery and the fallback (re-login when a refresh fails) work as with Kakao.
@@ -94,9 +94,9 @@ Example — seven meals active, the 21:00 slot disabled:
 
 Run the `getSchedule` command after saving; `scheduleSummary` will show the current state. JSON is also accepted, but it won't fit in a preference field — pass it through the `importSchedule` command instead.
 
-Changing `seedSchedule` or using `importSchedule` only changes the schedule **held by the driver**. Run `pushSchedule` (Kakao driver) to apply it to the feeder; if you changed times or grams, verify in the app's schedule screen afterwards.
+Changing `seedSchedule` or using `importSchedule` only changes the schedule **held by the driver**. Run `pushSchedule` (this driver) to apply it to the feeder; if you changed times or grams, verify in the app's schedule screen afterwards.
 
-The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The Kakao driver reads it on start and every 30 minutes; run `getSchedule` to pick up changes made in the official app immediately. `seedSchedule` is only a fallback when the server cannot be read, or a way to define a new schedule and send it with `pushSchedule`. `readServerSchedule` is a read-only command that just logs the server's copy.
+The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and every 30 minutes; run `getSchedule` to pick up changes made in the official app immediately. `seedSchedule` is only a fallback when the server cannot be read, or a way to define a new schedule and send it with `pushSchedule`. `readServerSchedule` is a read-only command that just logs the server's copy.
 
 ## Connection modes
 

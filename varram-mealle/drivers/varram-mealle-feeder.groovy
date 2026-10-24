@@ -20,7 +20,7 @@ import groovy.transform.Field
 @Field static final String WS_BASE  = "wss://smb.varram-robot.com/"
 
 metadata {
-    definition(name: "VARRAM Mealle Feeder Kakao", namespace: "kwon2288", author: "kwon2288") {
+    definition(name: "VARRAM Mealle Feeder", namespace: "kwon2288", author: "kwon2288") {
         capability "Actuator"
         capability "Initialize"
         capability "Refresh"
