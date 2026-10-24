@@ -54,12 +54,12 @@ The Kakao ID is the numeric value (your Kakao member number) the app sends to th
 
 Note: logging out and in issues a new app session, which may invalidate the refresh token of a legacy token-based driver running alongside (unverified). The response also contains tokens, so never commit the capture file (`*.flows`).
 
-### Accounts created with email / phone number
+### Accounts created with an email
 
-For non-Kakao accounts, enter the **email (or phone number) and password** instead of the Kakao ID. The same Kakao driver (`VARRAM Mealle Feeder Kakao`) handles it, and it is used only when the Kakao ID is empty.
+For non-Kakao accounts, enter the **email and password** instead of the Kakao ID. The same Kakao driver (`VARRAM Mealle Feeder Kakao`) handles it, and it is used only when the Kakao ID is empty.
 
-- Settings: `Email or phone number` and `Password` (both required); leave the rest empty.
-- Login: `POST auth.varram-robot.com/v2/login`, form fields `email` or `phone_number` plus `password`. Tokens, ID discovery and the fallback (re-login when a refresh fails) work as with Kakao.
+- Settings: `Email` and `Password` (both required); leave the rest empty.
+- Login: `POST auth.varram-robot.com/v2/login`, form fields `email` plus `password`. Tokens, ID discovery and the fallback (re-login when a refresh fails) work as with Kakao.
 - The response is assumed to match the Kakao one. Check the first run's log line `이메일 로그인 응답 키: …`; if no token is found, adjust the parser using the key names shown.
 - The password is stored in plain text in Hubitat settings and backups. Use a VARRAM-only password.
 - A capture of an in-app login contains the password in clear text. Never put it in docs, the repo or the wiki.

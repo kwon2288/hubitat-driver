@@ -72,7 +72,7 @@ metadata {
               title: "Kakao ID (선택, 자동 재로그인용)",
               description: "refresh token 갱신이 실패하면 카카오 ID로 자동 재로그인 시도. 비밀번호처럼 취급하세요"
         input name: "loginId",   type: "text", required: false,
-              title: "이메일 또는 전화번호 (선택)",
+              title: "이메일 (선택)",
               description: "카카오가 아닌 계정용. Kakao ID가 비어 있을 때 사용"
         input name: "loginPw",   type: "password", required: false,
               title: "비밀번호 (선택)",
@@ -211,7 +211,7 @@ def renewToken(boolean initialRun = false) {
 
 // 로그인 방식
 //   카카오 : POST auth.varram-robot.com/v2/auth/kakao  {"kakao_id": "..."}  (JSON)
-//   이메일 : POST auth.varram-robot.com/v2/login       email|phone_number + password  (form)
+//   이메일 : POST auth.varram-robot.com/v2/login       email + password  (form)
 // 응답은 /token 과 같은 구조이거나 data.auth_data 아래에 토큰이 들어 있다. 키 이름만 로그에 남기고
 // 비밀번호/토큰 값은 로그에 쓰지 않는다.
 private boolean hasLogin() { settings.kakaoId || (settings.loginId && settings.loginPw) }
@@ -227,10 +227,9 @@ def loginKakao(boolean initialRun = false) {
 }
 
 def loginEmail(boolean initialRun = false) {
-    def key = settings.loginId.contains("@") ? "email" : "phone_number"
-    doLogin([uri: "https://auth.varram-robot.com/v2/login",
+        doLogin([uri: "https://auth.varram-robot.com/v2/login",
              requestContentType: "application/x-www-form-urlencoded",
-             body: [(key): settings.loginId, password: settings.loginPw]], "이메일", initialRun)
+             body: [email: settings.loginId, password: settings.loginPw]], "이메일", initialRun)
 }
 
 private doLogin(Map req, String label, boolean initialRun) {
