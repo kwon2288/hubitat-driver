@@ -140,11 +140,13 @@ def initialize() {
     if (isOnDemand()) {
         // 소켓을 물고 있지 않는다. 상태는 HTTP 이력으로 갱신.
         runEvery15Minutes("pullHistory")
+        runEvery30Minutes("getSchedule")   // pick up schedule edits made in the app
         sendEvent(name: "connection", value: "idle")
         log.info "온디맨드 모드 — 명령이 있을 때만 접속합니다"
     } else {
         runEvery5Minutes("refresh")
         runEvery30Minutes("pullHistory")
+        runEvery30Minutes("getSchedule")
         log.warn "상시 연결 모드 — VARRAM 앱의 기기 연결이 끊길 수 있습니다"
     }
 
@@ -494,14 +496,27 @@ private List parseSeed(String raw) {
 }
 
 def getSchedule() {
-    // 서버는 온오프 상태를 보관하지 않으므로 드라이버가 스케줄의 단일 소유자다.
-    // 서버 조회는 하지 않는다. state 가 비어 있을 때만 초기값에서 읽어온다.
-    // seedSchedule 설정값이 바뀌면 다시 로드한다. (이미 로드된 기기는 처음 한 번 현재 값을 기준으로 기록만 한다)
+    // The server stores the full schedule incl. per-slot on/off (request_schedule_data), so it is the source of truth.
+    // Order: (1) seedSchedule edited by the user -> load the seed (use pushSchedule to send it to the feeder)
+    //        (2) otherwise read the schedule from the server  (3) server unreachable -> keep state / seed
+    if (state.pendingSchedule) return   // a schedule change is still in flight
     boolean seedChanged = false
     if (state.seedUsed == null && state.schedule?.s_list) {
         state.seedUsed = settings.seedSchedule ?: ""
     } else if (settings.seedSchedule && (state.seedUsed ?: "") != settings.seedSchedule) {
         seedChanged = true
+    }
+    if (!seedChanged) {
+        def srv = fetchServerSchedule()
+        if (srv?.s_list) {
+            def defWeek = [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]
+            state.schedule = [s_list: srv.s_list, weekday: srv.weekday ?: defWeek]
+            state.seedUsed = settings.seedSchedule ?: ""
+            if (settings.logEnable) log.debug "schedule loaded from server (${srv.s_list.size()} slots)"
+            renderSchedule()
+            return
+        }
+        log.warn "could not read the schedule from the server - using the stored/seed schedule"
     }
     if (!state.schedule?.s_list || seedChanged) {
         if (!settings.seedSchedule) {
@@ -544,6 +559,19 @@ def importSchedule(String raw) {
 def exportSchedule() {
     if (!state.schedule) { log.warn "스케줄 없음"; return }
     log.info "현재 스케줄: ${JsonOutput.toJson(state.schedule)}"
+}
+
+// Returns the server-side schedule_data map ([s_list, weekday]) or null.
+private fetchServerSchedule() {
+    if (!devId()) return null
+    def r = apiPost("/get/mobile/info/feeder/${devId()}",
+                    [request_update_info: true, request_schedule_data: true])
+    def sd = r?.data?.schedule_data
+    if (sd instanceof Map && sd.s_list instanceof List && sd.s_list) {
+        sd.s_list.each { if (it.on == null) it.on = true }
+        return sd
+    }
+    return null
 }
 
 // Read-only probe: the VARRAM app loads its schedule with request_schedule_data on this endpoint.

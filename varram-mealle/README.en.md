@@ -26,13 +26,13 @@ If the account was created with Kakao login, a **Kakao ID alone** is enough; no 
 
 1. Hubitat → **Drivers Code** → **New Driver** → paste [`drivers/varram-mealle-feeder-kakao.groovy`](drivers/varram-mealle-feeder-kakao.groovy) → **Save**
 2. **Devices** → **Add Device** → **Virtual** → type `VARRAM Mealle Feeder Kakao`
-3. Enter `Kakao ID` and `seedSchedule` (see Schedule configuration), then **Save Preferences**
+3. Enter `Kakao ID`, then **Save Preferences** (the schedule is fetched from the server automatically)
 4. Success looks like `자동 검색: user=OK device=… pet=…` in the log
 
 - Login: `POST auth.varram-robot.com/v2/auth/kakao {"kakao_id":"<numeric>"}` → `data.auth_data.access_token / refresh_token`. The server takes the numeric ID without any Kakao OAuth proof, so **treat the Kakao ID like a password**.
 - Discovery: JWT `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - Fallback: if a token refresh fails with an HTTP error, the driver re-logs in with the Kakao ID (verified with HTTP 403). A rejection returned as HTTP 200 + `{"type":"fail"}` is not handled yet.
-- Per-slot time/gram cannot be fetched from the server; enter them once via `seedSchedule`.
+- Per-slot time/gram/ON-OFF are fetched from the server automatically (no `seedSchedule` needed).
 - A fresh login may invalidate the official app's or the old driver's refresh token (unverified).
 - **Never commit the Kakao ID, tokens or passwords.**
 
@@ -115,7 +115,7 @@ Run the `getSchedule` command after saving; `scheduleSummary` will show the curr
 
 Changing `seedSchedule` or using `importSchedule` only changes the schedule **held by the driver**. Run `pushSchedule` (Kakao driver) to apply it to the feeder; if you changed times or grams, verify in the app's schedule screen afterwards.
 
-**The vendor server does not store per-slot ON/OFF state.** The driver is therefore the single owner of the schedule. If you change the schedule in the official app, re-sync the driver with `importSchedule`, or the next toggle will overwrite your app-side changes.
+The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The Kakao driver reads it on start and every 30 minutes; run `getSchedule` to pick up changes made in the official app immediately. `seedSchedule` is only a fallback when the server cannot be read, or a way to define a new schedule and send it with `pushSchedule`. `readServerSchedule` is a read-only command that just logs the server's copy.
 
 ## Connection modes
 
@@ -156,7 +156,7 @@ Both are exposed. Use `dailyIntakeGram` for true weight, or `appIntakeGram` when
 
 ## Commands
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 Slot numbers are 1-based, ordered by time.
 

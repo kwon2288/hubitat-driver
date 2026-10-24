@@ -26,13 +26,13 @@
 
 1. Hubitat → **Drivers Code** → **New Driver** → [`drivers/varram-mealle-feeder-kakao.groovy`](drivers/varram-mealle-feeder-kakao.groovy) 붙여넣기 → **Save**
 2. **Devices** → **Add Device** → **Virtual** → Type `VARRAM Mealle Feeder Kakao`
-3. `Kakao ID`와 `seedSchedule`(아래 스케줄 설정 참고)을 입력하고 **Save Preferences**
+3. `Kakao ID`를 입력하고 **Save Preferences** (스케줄은 서버에서 자동으로 가져옵니다)
 4. 로그에 `자동 검색: user=OK device=… pet=…`이 나오면 성공
 
 - 로그인: `POST auth.varram-robot.com/v2/auth/kakao {"kakao_id":"<숫자>"}` → `data.auth_data.access_token / refresh_token`. 카카오 OAuth 증명 없이 숫자 ID만 보내므로 **Kakao ID는 비밀번호처럼 취급**해야 합니다.
 - 자동 검색: JWT의 `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - 폴백: refresh token 갱신이 실패(HTTP 오류)하면 Kakao ID로 자동 재로그인합니다. HTTP 403 상황에서 동작을 확인했습니다. 서버가 HTTP 200 + `{"type":"fail"}`로 거부하는 경우는 아직 처리하지 않습니다.
-- Kakao ID는 앱 트래픽 캡처에서 위 요청 본문으로 확인합니다. 슬롯별 시간/그램은 서버에서 자동으로 가져올 수 없어 `seedSchedule`로 한 번 입력합니다.
+- Kakao ID는 앱 트래픽 캡처에서 위 요청 본문으로 확인합니다. 슬롯별 시간/그램/ON·OFF는 서버에서 자동으로 가져옵니다(`seedSchedule` 입력 불필요).
 - 재로그인이 새 세션을 발급하면서 공식 앱이나 기존 드라이버의 토큰을 무효화할 수 있습니다(미검증).
 - **Kakao ID, 토큰, 비밀번호는 위키·GitHub에 기록하지 마세요.**
 
@@ -115,7 +115,7 @@ Hubitat 텍스트 preference는 약 255자 제한이 있어 압축 포맷을 사
 
 `seedSchedule`을 바꾸거나 `importSchedule`을 써도 **드라이버가 가진 스케줄만 바뀝니다.** 기기에 실제로 적용하려면 `pushSchedule`을 실행하세요 (Kakao 드라이버). 시간·그램을 바꿨다면 전송 후 앱의 스케줄 화면에서 확인하세요.
 
-**서버는 슬롯의 ON/OFF 상태를 보관하지 않습니다.** 따라서 드라이버가 스케줄의 단일 소유자로 동작합니다. 공식 앱에서 스케줄을 변경했다면 `importSchedule`로 드라이버를 다시 맞춰야 합니다. 그러지 않으면 다음 토글 시 앱의 변경분이 덮어써집니다.
+서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), Kakao 드라이버는 시작할 때와 30분마다 서버에서 스케줄을 가져옵니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다. `seedSchedule`은 서버를 읽을 수 없을 때의 대체값이자, 새 스케줄을 직접 정해 `pushSchedule`로 보낼 때만 사용합니다. `readServerSchedule`은 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
 
 ## 연결 방식
 
@@ -156,7 +156,7 @@ Hubitat 텍스트 preference는 약 255자 제한이 있어 압축 포맷을 사
 
 ## 커맨드
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 슬롯 번호는 시간순 정렬 기준 1부터입니다.
 
