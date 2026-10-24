@@ -128,6 +128,10 @@ def initialize() {
     state.backoff = 5
     if (!state.refreshToken) state.refreshToken = settings.initToken
     rollDayIfNeeded()
+    // Show a placeholder until the first real value arrives, so the attributes are visible on the device page
+    ["lastFeedTime", "lastEatTime", "lastFailTime", "lastBowlEmptyTime"].each {
+        if (device.currentValue(it) == null) sendEvent(name: it, value: "-")
+    }
 
     if (settings.logEnable) runIn(1800, "logsOff")
     schedule("0 0 4 * * ?", "tokenCheck")
@@ -383,7 +387,7 @@ def pullHistory() {
 
     BigDecimal measGiven = 0, measIntake = 0, appGiven = 0, appIntake = 0, lastLeft = 0
     int okCount = 0, failCount = 0
-    String lastEat = null, lastFail = null, lastBowl = null
+    String lastEat = null, lastFail = null, lastBowl = null, lastGive = null
 
     order.each { k ->
         def recs = byTime[k]
@@ -403,6 +407,7 @@ def pullHistory() {
         if (gram <= 0) return
 
         okCount++
+        lastGive = k
         measGiven += gram
 
         BigDecimal target = targetGramFor(k)
@@ -430,6 +435,7 @@ def pullHistory() {
     sendEvent(name: "leftFeed",        value: lastLeft,   unit: "g")
     sendEvent(name: "feedOkCount",     value: okCount)
     sendEvent(name: "feedFailCount",   value: failCount)
+    if (lastGive) sendEvent(name: "lastFeedTime", value: lastGive)
     if (lastEat)  sendEvent(name: "lastEatTime",  value: lastEat)
     if (lastFail) sendEvent(name: "lastFailTime", value: lastFail)
     if (lastBowl) sendEvent(name: "lastBowlEmptyTime", value: lastBowl)
