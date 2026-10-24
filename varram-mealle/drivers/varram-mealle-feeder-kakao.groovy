@@ -55,6 +55,7 @@ metadata {
         command "getSchedule"
         command "importSchedule", [[name: "s_list JSON*", type: "STRING", description: "스케줄 JSON 배열"]]
         command "exportSchedule"
+        command "readServerSchedule"
         command "pushSchedule"
         command "scheduleSlotOn",  [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
         command "scheduleSlotOff", [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
@@ -543,6 +544,25 @@ def importSchedule(String raw) {
 def exportSchedule() {
     if (!state.schedule) { log.warn "스케줄 없음"; return }
     log.info "현재 스케줄: ${JsonOutput.toJson(state.schedule)}"
+}
+
+// Read-only probe: the VARRAM app loads its schedule with request_schedule_data on this endpoint.
+// Logs what the server returns; does NOT change the driver's schedule or the feeder.
+def readServerSchedule() {
+    if (!devId()) { log.error "Device ID not found"; return }
+    def r = apiPost("/get/mobile/info/feeder/${devId()}",
+                    [request_update_info: true, request_schedule_data: true, request_adjustment: true])
+    if (r == null) { log.error "server schedule request failed"; return }
+    def d = r?.data
+    log.info "server response keys: ${(d instanceof Map) ? d.keySet() : r}"
+    def sd = d?.schedule_data
+    if (sd == null) { log.warn "no schedule_data in response"; return }
+    log.info "server schedule_data: ${JsonOutput.toJson(sd).take(1500)}"
+    def sl = (sd instanceof Map) ? sd.s_list : null
+    if (sl) {
+        def hasOn = sl.every { it.containsKey("on") }
+        log.info "server s_list: ${sl.size()} slots, per-slot on/off present: ${hasOn}"
+    }
 }
 
 // 어떤 엔드포인트가 살아 있는지 로그로 확인하기 위한 진단용 (읽기 전용만)
