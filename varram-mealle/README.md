@@ -26,13 +26,13 @@
 
 1. Hubitat → **Drivers Code** → **New Driver** → [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) 붙여넣기 → **Save**
 2. **Devices** → **Add Device** → **Virtual** → Type `VARRAM Mealle Feeder`
-3. `Kakao ID`를 입력하고 **Save Preferences** (스케줄은 서버에서 자동으로 가져옵니다)
+3. `Kakao ID`를 입력하고 **Save Preferences**
 4. 로그에 `자동 검색: user=OK device=… pet=…`이 나오면 성공
 
 - 로그인: `POST auth.varram-robot.com/v2/auth/kakao {"kakao_id":"<숫자>"}` → `data.auth_data.access_token / refresh_token`. 카카오 OAuth 증명 없이 숫자 ID만 보내므로 **Kakao ID는 비밀번호처럼 취급**해야 합니다.
 - 자동 검색: JWT의 `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - 폴백: refresh token 갱신이 실패(HTTP 오류)하면 Kakao ID로 자동 재로그인합니다. HTTP 403 상황에서 동작을 확인했습니다. 서버가 HTTP 200 + `{"type":"fail"}`로 거부하는 경우는 아직 처리하지 않습니다.
-- Kakao ID는 앱 트래픽 캡처에서 위 요청 본문으로 확인합니다. 슬롯별 시간/그램/ON·OFF는 서버에서 자동으로 가져옵니다(`seedSchedule` 입력 불필요).
+- Kakao ID는 앱 트래픽 캡처에서 위 요청 본문으로 확인합니다. 슬롯별 시간/그램/ON·OFF는 서버에서 자동으로 가져옵니다.
 - 재로그인이 새 세션을 발급하면서 공식 앱의 토큰을 무효화할 수 있습니다(미검증).
 - **Kakao ID, 토큰, 비밀번호는 위키·GitHub에 기록하지 마세요.**
 
@@ -80,23 +80,17 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 ## 스케줄 설정
 
-Hubitat 텍스트 preference는 약 255자 제한이 있어 압축 포맷을 사용합니다.
+스케줄은 서버에서 자동으로 가져오므로 따로 입력할 필요가 없습니다. 서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), 드라이버는 시작할 때와 30분마다 이를 읽어 `scheduleSummary` 등에 표시합니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다.
 
-```
-시간,그램,온오프[,이름]  을 세미콜론으로 구분
-```
+- 슬롯별 ON/OFF: `scheduleSlotOn(slot)` / `scheduleSlotOff(slot)` / `scheduleAllOn` / `scheduleAllOff` — 바꾼 내용이 기기와 서버에 바로 저장됩니다.
+- 시간·그램 변경: `importSchedule`에 새 스케줄을 넣은 뒤 `pushSchedule`을 실행합니다. `importSchedule`만으로는 **드라이버가 가진 스케줄만 바뀌고** 30분 뒤 서버 값으로 되돌아갑니다. 전송 후 앱의 스케줄 화면에서 확인하세요(시간·그램 전송은 아직 충분히 검증하지 못했습니다).
+- `readServerSchedule`: 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
 
-예시 (7끼 활성, 21시 슬롯만 꺼짐):
+`importSchedule`은 JSON 배열 또는 압축 포맷(`시간,그램,온오프[,이름]`을 세미콜론으로 구분)을 받습니다.
 
 ```
 00:06,6,1;03:00,6,1;06:00,6,1;09:00,6,1;12:00,6,1;15:00,6,1;18:00,6,1;21:00,6,0
 ```
-
-저장 후 `getSchedule` 커맨드를 실행하면 `scheduleSummary`에 현재 상태가 표시됩니다. JSON 형식도 지원하지만 길이 때문에 preference에는 들어가지 않으므로 `importSchedule` 커맨드로 넘기세요.
-
-`seedSchedule`을 바꾸거나 `importSchedule`을 써도 **드라이버가 가진 스케줄만 바뀝니다.** 기기에 실제로 적용하려면 `pushSchedule`을 실행하세요 (이 드라이버). 시간·그램을 바꿨다면 전송 후 앱의 스케줄 화면에서 확인하세요.
-
-서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), 드라이버는 시작할 때와 30분마다 서버에서 스케줄을 가져옵니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다. `seedSchedule`은 서버를 읽을 수 없을 때의 대체값이자, 새 스케줄을 직접 정해 `pushSchedule`로 보낼 때만 사용합니다. `readServerSchedule`은 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
 
 ## 연결 방식
 

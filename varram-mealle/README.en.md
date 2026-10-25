@@ -26,13 +26,13 @@ If the account was created with Kakao login, a **Kakao ID alone** is enough; no 
 
 1. Hubitat → **Drivers Code** → **New Driver** → paste [`drivers/varram-mealle-feeder.groovy`](drivers/varram-mealle-feeder.groovy) → **Save**
 2. **Devices** → **Add Device** → **Virtual** → type `VARRAM Mealle Feeder`
-3. Enter `Kakao ID`, then **Save Preferences** (the schedule is fetched from the server automatically)
+3. Enter `Kakao ID`, then **Save Preferences**
 4. Success looks like `자동 검색: user=OK device=… pet=…` in the log
 
 - Login: `POST auth.varram-robot.com/v2/auth/kakao {"kakao_id":"<numeric>"}` → `data.auth_data.access_token / refresh_token`. The server takes the numeric ID without any Kakao OAuth proof, so **treat the Kakao ID like a password**.
 - Discovery: JWT `userid`, `GET /res/user/info`, `GET /get/connected_pet`, `GET /res/dev/info`
 - Fallback: if a token refresh fails with an HTTP error, the driver re-logs in with the Kakao ID (verified with HTTP 403). A rejection returned as HTTP 200 + `{"type":"fail"}` is not handled yet.
-- Per-slot time/gram/ON-OFF are fetched from the server automatically (no `seedSchedule` needed).
+- Per-slot time/gram/ON-OFF are fetched from the server automatically.
 - A fresh login may invalidate the official app's refresh token (unverified).
 - **Never commit the Kakao ID, tokens or passwords.**
 
@@ -78,25 +78,19 @@ The Kakao ID is not shown in the app, so you read it from the login request.
 
 The app has no SSL pinning, so no bypass is needed.
 
-## Schedule configuration
+## Schedule
 
-Hubitat text preferences are limited to roughly 255 characters, so a compact format is used:
+The schedule is fetched from the server automatically; there is nothing to enter. The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and every 30 minutes and shows it in `scheduleSummary`. Run `getSchedule` to pick up changes made in the official app immediately.
 
-```
-time,grams,onoff[,name]  separated by semicolons
-```
+- Per-slot ON/OFF: `scheduleSlotOn(slot)` / `scheduleSlotOff(slot)` / `scheduleAllOn` / `scheduleAllOff` — changes are sent to the feeder and saved to the server right away.
+- Changing times or grams: pass the new schedule to `importSchedule`, then run `pushSchedule`. `importSchedule` alone only changes the schedule **held by the driver**, which reverts to the server's copy within 30 minutes. Verify in the app's schedule screen afterwards (sending time/gram changes is not yet well tested).
+- `readServerSchedule`: read-only command that just logs the server's copy.
 
-Example — seven meals active, the 21:00 slot disabled:
+`importSchedule` accepts a JSON array or the compact format (`time,grams,onoff[,name]`, semicolon-separated):
 
 ```
 00:06,6,1;03:00,6,1;06:00,6,1;09:00,6,1;12:00,6,1;15:00,6,1;18:00,6,1;21:00,6,0
 ```
-
-Run the `getSchedule` command after saving; `scheduleSummary` will show the current state. JSON is also accepted, but it won't fit in a preference field — pass it through the `importSchedule` command instead.
-
-Changing `seedSchedule` or using `importSchedule` only changes the schedule **held by the driver**. Run `pushSchedule` (this driver) to apply it to the feeder; if you changed times or grams, verify in the app's schedule screen afterwards.
-
-The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and every 30 minutes; run `getSchedule` to pick up changes made in the official app immediately. `seedSchedule` is only a fallback when the server cannot be read, or a way to define a new schedule and send it with `pushSchedule`. `readServerSchedule` is a read-only command that just logs the server's copy.
 
 ## Connection modes
 

@@ -88,10 +88,6 @@ metadata {
         input name: "holdSeconds", type: "number", title: "세션 유지 시간 (초)",
               description: "온디맨드 모드에서 마지막 메시지 후 소켓을 닫기까지", defaultValue: 15
 
-        input name: "seedSchedule", type: "text", required: false,
-              title: "스케줄 초기값",
-              description: "시간,그램,온오프 를 세미콜론으로 구분. 예) 06:00,6,1;12:00,6,1;21:00,6,0"
-
         input name: "maxFeedGram", type: "number", title: "1회 최대 토출량 (g)", defaultValue: 20
         input name: "dailyCap",    type: "number", title: "일일 수동 급여 상한 (g)", defaultValue: 60
         input name: "minInterval", type: "number", title: "급여 최소 간격 (초)", defaultValue: 300
@@ -496,45 +492,20 @@ private List parseSeed(String raw) {
 }
 
 def getSchedule() {
-    // The server stores the full schedule incl. per-slot on/off (request_schedule_data), so it is the source of truth.
-    // Order: (1) seedSchedule edited by the user -> load the seed (use pushSchedule to send it to the feeder)
-    //        (2) otherwise read the schedule from the server  (3) server unreachable -> keep state / seed
+    // The server stores the full schedule incl. per-slot on/off (request_schedule_data) and is the source of truth.
+    // If it cannot be read, the last known schedule in state is kept.
     if (state.pendingSchedule) return   // a schedule change is still in flight
-    boolean seedChanged = false
-    if (state.seedUsed == null && state.schedule?.s_list) {
-        state.seedUsed = settings.seedSchedule ?: ""
-    } else if (settings.seedSchedule && (state.seedUsed ?: "") != settings.seedSchedule) {
-        seedChanged = true
-    }
-    if (!seedChanged) {
-        def srv = fetchServerSchedule()
-        if (srv?.s_list) {
-            def defWeek = [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]
-            state.schedule = [s_list: srv.s_list, weekday: srv.weekday ?: defWeek]
-            state.seedUsed = settings.seedSchedule ?: ""
-            if (settings.logEnable) log.debug "schedule loaded from server (${srv.s_list.size()} slots)"
-            renderSchedule()
-            return
-        }
-        log.warn "could not read the schedule from the server - using the stored/seed schedule"
-    }
-    if (!state.schedule?.s_list || seedChanged) {
-        if (!settings.seedSchedule) {
-            log.error "스케줄이 없습니다. seedSchedule 에 스케줄을 넣고 저장하세요."
-            sendEvent(name: "scheduleSummary", value: "미설정")
-            return
-        }
-        try {
-            def sList = parseSeed(settings.seedSchedule)
-            if (!sList) { log.error "스케줄 초기값을 해석하지 못했습니다"; return }
-            state.schedule = [s_list: sList,
-                              weekday: [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]]
-            state.seedUsed = settings.seedSchedule
-            log.info "초기값에서 스케줄 로드 (${sList.size()}개 슬롯)${seedChanged ? ' — 설정값 변경 반영' : ''}"
-        } catch (e) {
-            log.error "스케줄 초기값 파싱 실패: ${e.message}"
-            return
-        }
+    def srv = fetchServerSchedule()
+    if (srv?.s_list) {
+        def defWeek = [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]
+        state.schedule = [s_list: srv.s_list, weekday: srv.weekday ?: defWeek]
+        if (settings.logEnable) log.debug "schedule loaded from server (${srv.s_list.size()} slots)"
+    } else if (state.schedule?.s_list) {
+        log.warn "could not read the schedule from the server - keeping the last known schedule"
+    } else {
+        log.error "could not read the schedule from the server and none is stored"
+        sendEvent(name: "scheduleSummary", value: "unknown")
+        return
     }
     renderSchedule()
 }
@@ -547,7 +518,6 @@ def importSchedule(String raw) {
         state.schedule = [s_list: sList,
                           weekday: state.schedule?.weekday ?:
                                    [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]]
-        state.seedUsed = settings.seedSchedule ?: ""   // 가져온 값이 설정값 때문에 덮어써지지 않게
         log.info "스케줄 가져오기 완료 (${sList.size()}개 슬롯) — 기기 반영은 하지 않았습니다"
         renderSchedule()
     } catch (e) {
@@ -631,7 +601,7 @@ private renderSchedule() {
 // 드라이버가 가진 스케줄(시간/그램/온오프)을 그대로 기기에 전송한다. 응답이 없으면 25초 뒤 로그에 오류를 남긴다.
 def pushSchedule() {
     def sl = state.schedule?.s_list
-    if (!sl) { log.error "스케줄이 없습니다. seedSchedule 을 넣거나 importSchedule 을 먼저 실행하세요"; return }
+    if (!sl) { log.error "스케줄이 없습니다. getSchedule 또는 importSchedule 을 먼저 실행하세요"; return }
     log.info "스케줄 ${sl.size()}개 슬롯을 기기로 전송합니다"
     applySchedule()
 }
