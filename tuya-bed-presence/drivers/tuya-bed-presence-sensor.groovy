@@ -41,6 +41,8 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.2
+ *    - CHG: preference titles and log tags use the model name (TS0601 / ZG-210Z) instead of the manufacturer code
  *  Version: 1.3.1
  *    - FIX: rename evaluate() (clashed with Script.evaluate on Hubitat, compile error)
  *  Version: 1.3.0
@@ -63,7 +65,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.1"
+@Field static final String VERSION = "1.3.2"
 
 // ZG-210Z driver-side detection: fixed hysteresis so values hovering at the threshold do not flicker
 @Field static final int HYSTERESIS = 20
@@ -133,11 +135,11 @@ metadata {
     }
 
     preferences {
-        input name: "sensitivityPref", type: "enum", title: "Sensitivity (seq9cm6u only)",
+        input name: "sensitivityPref", type: "enum", title: "Sensitivity (TS0601 only)",
               options: ["low": "Low", "middle": "Middle", "high": "High"], required: false
-        input name: "intervalTimePref", type: "number", title: "Sampling interval (min, 5-720, step 5; seq9cm6u only)",
+        input name: "intervalTimePref", type: "number", title: "Sampling interval (min, 5-720, step 5; TS0601 only)",
               range: "5..720", required: false
-        input name: "presenceTimePref", type: "number", title: "Delay before reporting 'present' (s, 0-3600; seq9cm6u only)",
+        input name: "presenceTimePref", type: "number", title: "Delay before reporting 'present' (s, 0-3600; TS0601 only)",
               range: "0..3600", required: false
         input name: "presenceDelayPref", type: "number", title: "Delay before reporting 'not present' (s, 0-3600)",
               range: "0..3600", required: false
@@ -171,12 +173,12 @@ private boolean isZg210z() {
 /* ------------------------------------------------------------------ */
 
 def installed() {
-    log.info "${device.displayName} installed (v${VERSION}, ${isZg210z() ? 'ZG-210Z' : 'seq9cm6u'})"
+    log.info "${device.displayName} installed (v${VERSION}, ${isZg210z() ? 'ZG-210Z' : 'TS0601'})"
     if (logEnable) runIn(1800, "logsOff")
 }
 
 def updated() {
-    log.info "${device.displayName} preferences updated (v${VERSION}, ${isZg210z() ? 'ZG-210Z' : 'seq9cm6u'})"
+    log.info "${device.displayName} preferences updated (v${VERSION}, ${isZg210z() ? 'ZG-210Z' : 'TS0601'})"
     unschedule("logsOff")
     if (logEnable) runIn(1800, "logsOff")
 
