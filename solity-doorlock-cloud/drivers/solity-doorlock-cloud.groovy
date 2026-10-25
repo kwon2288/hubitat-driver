@@ -19,6 +19,12 @@
  *   - 도어락이 응답하지 않으면 1분 → 2분 → 5분(이후 5분마다) 간격으로 다시 조회.
  *
  *  Author : kwon2288
+ *  Version: 1.2.5 (2026-10-25)  — 원본 HA 통합 v1.7.4~1.7.5 반영
+ *    - FIX: Hubitat 에서 연 직후 상태 조회를 몰아 보내 WiFi+ 모듈이 멈출 수 있던 문제
+ *           첫 잠김 확인은 5초 뒤, 응답 없으면 3초 뒤 1번만 재시도 (로그로 감지한 열림은 그대로 즉시)
+ *    - FIX: Hubitat 에서 연 뒤 5초 안의 "잠김"은 명령 전 오래된 값으로 보고 무시 (trace: 잠김(이전값))
+ *    - FIX: 데드볼트 값이 없는 상태 응답은 실패로 처리해 직전 값을 유지
+ *    - FIX: 열기/잠그기 명령을 보내는 동안 상태 조회를 잠시 미룸 (명령은 기다리지 않음)
  *  Version: 1.2.4 (2026-10-17)
  *    - CHG: 열림 로그 폴링(retrieveLog)을 비동기 HTTP 로 — 10초마다 허브 스레드를 붙잡던 부하 제거
  *           (401/403 재로그인은 콜백 안에서 처리, 이전 요청이 진행 중이면 겹쳐 보내지 않음)
@@ -80,6 +86,11 @@ import groovy.transform.Field
 @Field static final int  VERIFY_POLL_RETRIES      = 3
 @Field static final int  VERIFY_TRACE_LEN         = 15
 @Field static final List RECOVER_DELAYS           = [60, 120, 300]
+// Hubitat 에서 연 직후 (원본 v1.7.4~1.7.5)
+@Field static final long UNLOCK_GRACE_MS          = 5000   // 이 안의 "잠김"은 명령 전 값
+@Field static final int  HUB_UNLOCK_SETTLE        = 5      // 첫 확인까지 대기(초)
+@Field static final int  HUB_UNLOCK_POLL_RETRIES  = 1
+@Field static final int  HUB_UNLOCK_RETRY_DELAY   = 3
 
 // retrieveLog: 열림 기록 코드
 @Field static final List OPEN_LOG_CODES = ["1", "7"]
@@ -253,9 +264,10 @@ def unlock() {
         publishAccess(e)
         addHistory(e)
         state.hubOpenAt = now()
+        state.graceUntil = now() + UNLOCK_GRACE_MS
         state.lockAddHistory = true
         markUnlocked(e, false, "digital")
-        startVerify()
+        startVerify(true)
     }
 }
 
@@ -267,6 +279,7 @@ def lock() {
     if (st == 200 || st == -1) {
         state.pendingLockBy = "Hubitat"
         state.lockAddHistory = true
+        state.remove("graceUntil")
         startVerify()   // 데드볼트가 나온 것을 읽은 뒤 locked
     }
 }
@@ -369,12 +382,14 @@ private int control(String controlType) {
     String devId = resolvedDeviceId()
     if (!devId) return 0
     int result = 0
+    state.commandAt = now()   // 명령 중에는 상태 조회를 미룸
     authed("PUT", "/api_v2/controlDevice/${devId}", [controlType: controlType, optionValue: "1"], { status, data ->
         result = status as int
         if (status == 200) sendEvent(name: "apiStatus", value: "ok")
         else if (status == -1) log.warn "${controlType} 응답 타임아웃 — 명령은 전달됐을 수 있어 상태를 다시 읽습니다"
         else log.error "${controlType} 실패 (HTTP ${status})"
     }, STATUS_TIMEOUT)
+    state.remove("commandAt")
     return result
 }
 
@@ -387,6 +402,10 @@ private requestStatus(String kind, int timeoutSec, Map extra = [:]) {
     String devId = resolvedDeviceId()
     if (!devId) return
     if (!canAuth()) return
+    if (state.commandAt && now() - (state.commandAt as long) < (STATUS_TIMEOUT + 5) * 1000L) {
+        runIn(2, "deferredStatus", [data: [kind: kind, timeoutSec: timeoutSec, extra: extra], overwrite: false])
+        return
+    }
     if (!state.token && !doLogin()) { onStatus(kind, null, extra); return }
     Map params = [
         uri: BASE_URL, path: "/api_v2/controlDevice/${devId}",
@@ -399,6 +418,8 @@ private requestStatus(String kind, int timeoutSec, Map extra = [:]) {
     state.statusBusyAt = now()
     asynchttpPut("statusResp", params, extra + [kind: kind, timeoutSec: timeoutSec])
 }
+
+def deferredStatus(Map d) { requestStatus(d.kind as String, d.timeoutSec as int, (d.extra ?: [:]) as Map) }
 
 def statusResp(resp, Map data) {
     state.remove("statusBusyAt")
@@ -428,15 +449,26 @@ def statusResp(resp, Map data) {
 }
 
 private onStatus(String kind, Map st, Map data) {
-    boolean ok = (st != null && !st.isEmpty())
+    // 빈 응답({})이나 데드볼트 값이 없는 응답은 실패로 보고 직전 값을 유지
+    boolean ok = (st != null && st.deadBolt != null && st.deadBolt.toString() != "")
+    boolean stale = false
+    if (ok && state.graceUntil) {
+        if (st.deadBolt.toString() == "1" && now() < (state.graceUntil as long)) {
+            stale = true                       // Hubitat 열기 명령이 닿기 전 값
+            st = st + [deadBolt: 0]
+        } else {
+            state.remove("graceUntil")
+        }
+    }
     if (ok) {
         sendEvent(name: "apiStatus", value: "ok")
         applyStatus(st)
+        if (stale) setAttr("confirmed", "false")
     } else if (!(kind == "regular" && !data.wakeRetry)) {
         setAttr("confirmed", "false")   // 깨우기 재조회 전 첫 실패는 제외
     }
     switch (kind) {
-        case "verify":  verifyResult(ok, st, data); break
+        case "verify":  verifyResult(ok, st, data, stale); break
         case "recover": recoverResult(ok); break
         default:        regularResult(ok, data); break
     }
@@ -536,7 +568,7 @@ private setDoor(String v) {
 private boolean isVerifying() { state.verify != null }
 
 /** 잠김 확인 시작(이미 진행 중이면 처음부터 다시) */
-private startVerify() {
+private startVerify(boolean afterHubUnlock = false) {
     unschedule("verifyTick")
     if (state.recover) {
         unschedule("recoverTick")
@@ -546,9 +578,11 @@ private startVerify() {
     int gen = ((state.verifyGen ?: 0) as int) + 1
     state.verifyGen = gen
     state.verify = [gen: gen, start: now(), polls: 0, tries: 0, openWait: VERIFY_OPEN_FIRST,
-                    closedStreak: 0, trace: []]
+                    closedStreak: 0, trace: [], hub: afterHubUnlock]
     setAttr("verifying", "true")
-    verifyPoll()
+    // Hubitat 에서 연 직후엔 WiFi+ 모듈이 명령 전달·기록 업로드로 바쁨 → 조금 기다렸다 확인
+    if (afterHubUnlock) runIn(HUB_UNLOCK_SETTLE, "verifyTick", [overwrite: true])
+    else verifyPoll()
 }
 
 def verifyTick() { verifyPoll() }
@@ -559,15 +593,18 @@ private verifyPoll() {
     requestStatus("verify", VERIFY_TIMEOUT, [gen: v.gen])
 }
 
-private verifyResult(boolean ok, Map st, Map data) {
+private verifyResult(boolean ok, Map st, Map data, boolean stale = false) {
     Map v = state.verify
     if (!v || (data.gen as int) != (v.gen as int)) return   // 새 열림으로 교체된 이전 확인
     v.polls = (v.polls as int) + 1
 
-    if (!ok && (v.tries as int) < VERIFY_POLL_RETRIES && (v.polls as int) < VERIFY_MAX_POLLS) {
-        v.tries = (v.tries as int) + 1     // 열림 직후 멈춘 조회 → 바로 다시
+    int retries = v.hub ? HUB_UNLOCK_POLL_RETRIES : VERIFY_POLL_RETRIES
+    if (!ok && (v.tries as int) < retries && (v.polls as int) < VERIFY_MAX_POLLS) {
+        v.tries = (v.tries as int) + 1
         state.verify = v
-        verifyPoll()
+        // 로그로 감지한 열림: 바로 다시 / Hubitat 열기 직후: 3초 뒤 한 번만
+        if (v.hub) runIn(HUB_UNLOCK_RETRY_DELAY, "verifyTick", [overwrite: true])
+        else verifyPoll()
         return
     }
     v.tries = 0
@@ -579,6 +616,9 @@ private verifyResult(boolean ok, Map st, Map data) {
         result = "no_answer"
         dropAssumedDoor()
         waitMs = VERIFY_UNKNOWN_RECHECK * 1000L
+    } else if (stale) {
+        result = "locked_early"            // 명령이 아직 안 닿음 → 곧 다시 읽음
+        waitMs = VERIFY_CLOSED_RECHECK_MS
     } else if (st.deadBolt?.toString() == "1") {
         result = "locked"
     } else if (st.subLatch?.toString() == "1") {
@@ -633,7 +673,7 @@ private finishVerify(String result, double elapsed) {
 }
 
 private String traceLabel(String r) {
-    [locked: "잠김", closed_unlocked: "닫힘·안잠김", open: "문열림", unlocked: "안잠김", no_answer: "무응답"][r] ?: r
+    [locked: "잠김", locked_early: "잠김(이전값)", closed_unlocked: "닫힘·안잠김", open: "문열림", unlocked: "안잠김", no_answer: "무응답"][r] ?: r
 }
 
 /** 열림이 일어남: 캐시된 locked 를 버리고 unlocked 로. assumeOpen 이면 문도 바로 열림 표시 */
