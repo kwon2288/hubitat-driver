@@ -82,6 +82,7 @@ A setting is only sent when it differs from the value the device last reported.
 | `temperature` / `humidity` | °C (or °F) / % (ZG-210Z) |
 | `pressureState` | none, sit, sedentary (ZG-210Z) |
 | `currentPressure` | raw pressure value (ZG-210Z) |
+| `detectionThreshold` | configured detection threshold (ZG-210Z; hidden when the threshold is blank) |
 | `temperatureCalibration` / `humidityCalibration` | calibration offsets (ZG-210Z) |
 | `lastPresenceChange` | yyyy-MM-dd HH:mm:ss |
 

@@ -82,6 +82,7 @@ tuya-bed-presence/
 | `temperature` / `humidity` | °C(또는 °F) / % (ZG-210Z) |
 | `pressureState` | none, sit, sedentary (ZG-210Z) |
 | `currentPressure` | 압력 원시값 (ZG-210Z) |
+| `detectionThreshold` | 설정한 감지 기준값 (ZG-210Z, 기준값을 비우면 표시 안 됨) |
 | `temperatureCalibration` / `humidityCalibration` | 보정값 (ZG-210Z) |
 | `lastPresenceChange` | yyyy-MM-dd HH:mm:ss |
 

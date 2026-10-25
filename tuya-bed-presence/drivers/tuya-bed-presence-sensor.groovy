@@ -41,6 +41,8 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.3
+ *    - NEW (ZG-210Z): detectionThreshold attribute shows the configured detection threshold in Current States
  *  Version: 1.3.2
  *    - CHG: preference titles and log tags use the model name (TS0601 / ZG-210Z) instead of the manufacturer code
  *  Version: 1.3.1
@@ -65,7 +67,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.2"
+@Field static final String VERSION = "1.3.3"
 
 // ZG-210Z driver-side detection: fixed hysteresis so values hovering at the threshold do not flicker
 @Field static final int HYSTERESIS = 20
@@ -119,6 +121,7 @@ metadata {
         // _TZE200_ihizzpzn (ZG-210Z)
         attribute "pressureState", "enum", ["none", "sit", "sedentary"]
         attribute "currentPressure", "number"
+        attribute "detectionThreshold", "number"
         attribute "temperatureCalibration", "number"
         attribute "humidityCalibration", "number"
 
@@ -199,6 +202,13 @@ def updated() {
         queueSetting(103, settings.tempCalPref, "temperatureCalibration", -2, 2, 10)
         queueSetting(104, settings.humCalPref, "humidityCalibration", -30, 30, 1)
         flushPending(true)
+
+        // Mirror the configured threshold into Current States (cleared when blank = device judgement)
+        if (settings.threshold != null) {
+            emit("detectionThreshold", settings.threshold as int)
+        } else {
+            device.deleteCurrentState("detectionThreshold")
+        }
 
         // Apply a new threshold right away instead of waiting for the next report
         def cp = device.currentValue("currentPressure")
