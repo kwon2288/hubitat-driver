@@ -164,6 +164,17 @@ A Rule Machine notification on `feedFailCount > 0` tells you immediately when a 
 - If the refresh token chain breaks (app logout, password change), you must capture credentials again.
 - App updates may change the API and break this driver.
 
+## Changelog
+
+| Version | Changes |
+|---|---|
+| v6.1 | Added `listDevices` — logs the account's `device_id` / `pet_id` list. Documented setup for multiple feeders |
+| v6.0 | Schedule is now read from the server automatically (`request_schedule_data`, on start and every 30 minutes); the `seedSchedule` preference is removed. Added `readServerSchedule`. `lastFeedTime` is now updated from the feeding history and timestamp attributes without a value show `-`. Phone-number login removed (email only). Driver renamed to `VARRAM Mealle Feeder`; the legacy token-capture driver is retired |
+| v5.3 | Added email + password login. Added `pushSchedule` (sends the driver's schedule to the feeder). Fixed `seedSchedule` changes not being reloaded |
+| v5.2 | Auto-discovery of User ID / Device ID / Pet ID after login. `none_bowl` (bowl emptied) is no longer counted as a failure and is recorded in `lastBowlEmptyTime` |
+| v5.1 | Added Kakao ID login and automatic re-login when the refresh token renewal fails |
+| v5 and earlier | Token-capture setup. Manual feeding (three safety guards), schedule slot ON/OFF, given/intake/remaining grams, failure counting, on-demand connection mode (coexists with the app) |
+
 ## Disclaimer
 
 This project is not affiliated with VARRAM. An automatic feeder directly controls a pet's meals — review the guard settings and test with small portions before wiring it into any automation.

@@ -1,5 +1,5 @@
 /**
- *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v5.3 (kakao/email login + auto ids)
+ *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v6.1 (kakao/email login, server schedule, multi-feeder)
  *  Hubitat driver - unofficial, based on observed app traffic
  *
  *  Auth    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
