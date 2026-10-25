@@ -92,6 +92,15 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 00:06,6,1;03:00,6,1;06:00,6,1;09:00,6,1;12:00,6,1;15:00,6,1;18:00,6,1;21:00,6,0
 ```
 
+## 급식기가 여러 대인 경우
+
+자동 검색은 계정에 연결된 급식기 중 첫 번째만 고릅니다. 두 대 이상이면 기기마다 Hubitat 가상 기기를 만들어 같은 드라이버를 지정하고 로그인 정보를 입력한 뒤, 각각 `Device ID`와 `Pet ID`를 직접 지정하세요.
+
+1. 아무 기기에서 `listDevices`를 실행하면 계정에 연결된 `device_id` / `pet_id` / 모델 목록이 로그에 출력됩니다 (토큰·시리얼 등은 출력하지 않습니다).
+2. 기기별 `Device ID`, `Pet ID` preference에 해당 값을 넣고 **Save Preferences**.
+
+같은 계정으로 기기마다 따로 로그인하므로, 재로그인이 다른 기기의 토큰을 무효화하는지는 확인하지 못했습니다(미검증).
+
 ## 연결 방식
 
 벤더 서버는 기기당 WebSocket 세션을 하나만 허용합니다. 드라이버가 소켓을 계속 물고 있으면 **공식 앱에서 기기가 오프라인으로 표시됩니다.**
@@ -131,7 +140,7 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 ## 커맨드
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 슬롯 번호는 시간순 정렬 기준 1부터입니다.
 

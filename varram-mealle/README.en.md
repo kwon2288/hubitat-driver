@@ -92,6 +92,15 @@ The schedule is fetched from the server automatically; there is nothing to enter
 00:06,6,1;03:00,6,1;06:00,6,1;09:00,6,1;12:00,6,1;15:00,6,1;18:00,6,1;21:00,6,0
 ```
 
+## Multiple feeders
+
+Auto-discovery only picks the first feeder linked to the account. With two or more, create one Hubitat virtual device per feeder with this driver, enter the login details, and set each device's `Device ID` and `Pet ID` explicitly.
+
+1. Run `listDevices` on any device; the account's `device_id` / `pet_id` / model list is written to the log (tokens, serials etc. are not printed).
+2. Put the matching values into each device's `Device ID` and `Pet ID` preferences and **Save Preferences**.
+
+Each device logs in separately with the same account; whether a fresh login invalidates another device's token is unverified.
+
 ## Connection modes
 
 The vendor server appears to allow only one WebSocket session per device. If the driver holds the socket open, **the official app shows the feeder as offline.**
@@ -131,7 +140,7 @@ Both are exposed. Use `dailyIntakeGram` for true weight, or `appIntakeGram` when
 
 ## Commands
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 Slot numbers are 1-based, ordered by time.
 

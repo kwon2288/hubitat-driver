@@ -56,6 +56,7 @@ metadata {
         command "importSchedule", [[name: "s_list JSON*", type: "STRING", description: "스케줄 JSON 배열"]]
         command "exportSchedule"
         command "readServerSchedule"
+        command "listDevices"
         command "pushSchedule"
         command "scheduleSlotOn",  [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
         command "scheduleSlotOff", [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
@@ -529,6 +530,24 @@ def importSchedule(String raw) {
 def exportSchedule() {
     if (!state.schedule) { log.warn "스케줄 없음"; return }
     log.info "현재 스케줄: ${JsonOutput.toJson(state.schedule)}"
+}
+
+// Logs every device/pet linked to the account so the right Device ID / Pet ID can be copied into the preferences
+// (needed when the account has more than one feeder). Only non-sensitive fields are printed.
+def listDevices() {
+    if (!state.accessToken) { log.error "not logged in yet - run initialize first"; return }
+    def keys = ["device_id", "pet_id", "model_name", "device_name", "pet_name", "name", "nickname"]
+    def fmt = { Map m -> keys.findAll { k -> m[k] != null }.collect { k -> "${k}=${m[k]}" }.join("  ") }
+    def c = apiGet("/get/connected_pet")
+    def list = c?.data?.connect_list ?: []
+    log.info "=== connected_pet: ${list.size()} item(s) ==="
+    list.eachWithIndex { e, i -> log.info "${i + 1}. ${fmt(e)}" }
+    def dv = apiGet("/res/dev/info")
+    def devs = (dv?.data instanceof List) ? dv.data : []
+    log.info "=== devices: ${devs.size()} item(s) ==="
+    devs.eachWithIndex { e, i -> log.info "${i + 1}. ${fmt(e)}" }
+    log.info "this device uses: device=${devId() ?: 'none'} pet=${petIdv() ?: 'none'}"
+    log.info "=== end - copy device_id / pet_id into this device's Device ID / Pet ID preferences ==="
 }
 
 // Returns the server-side schedule_data map ([s_list, weekday]) or null.
