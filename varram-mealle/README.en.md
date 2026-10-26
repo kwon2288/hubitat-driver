@@ -80,10 +80,10 @@ The app has no SSL pinning, so no bypass is needed.
 
 ## Schedule
 
-The schedule is fetched from the server automatically; there is nothing to enter. The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and every 30 minutes and shows it in `scheduleSummary`. Run `getSchedule` to pick up changes made in the official app immediately.
+The schedule is fetched from the server automatically; there is nothing to enter. The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and at the configured interval (default 6 hours) and shows it in `scheduleSummary`. Run `getSchedule` to pick up changes made in the official app immediately.
 
 - Per-slot ON/OFF: `scheduleSlotOn(slot)` / `scheduleSlotOff(slot)` / `scheduleAllOn` / `scheduleAllOff` — changes are sent to the feeder and saved to the server right away.
-- Changing times or grams: pass the new schedule to `importSchedule`, then run `pushSchedule`. `importSchedule` alone only changes the schedule **held by the driver**, which reverts to the server's copy within 30 minutes. Verify in the app's schedule screen afterwards (sending time/gram changes is not yet well tested).
+- Changing times or grams: pass the new schedule to `importSchedule`, then run `pushSchedule`. `importSchedule` alone only changes the schedule **held by the driver**, which reverts to the server's copy at the next sync. Verify in the app's schedule screen afterwards (sending time/gram changes is not yet well tested).
 - `readServerSchedule`: read-only command that just logs the server's copy.
 
 `importSchedule` accepts a JSON array or the compact format (`time,grams,onoff[,name]`, semicolon-separated):
@@ -168,6 +168,7 @@ A Rule Machine notification on `feedFailCount > 0` tells you immediately when a 
 
 | Version | Changes |
 |---|---|
+| v6.2 | The schedule sync interval is now a preference (off / 1 / 6 / 12 / 24 h, default 6 h); the former 30-minute interval was excessive |
 | v6.1 | Added `listDevices` — logs the account's `device_id` / `pet_id` list. Documented setup for multiple feeders |
 | v6.0 | Schedule is now read from the server automatically (`request_schedule_data`, on start and every 30 minutes); the `seedSchedule` preference is removed. Added `readServerSchedule`. `lastFeedTime` is now updated from the feeding history and timestamp attributes without a value show `-`. Phone-number login removed (email only). Driver renamed to `VARRAM Mealle Feeder`; the legacy token-capture driver is retired |
 | v5.3 | Added email + password login. Added `pushSchedule` (sends the driver's schedule to the feeder). Fixed `seedSchedule` changes not being reloaded |

@@ -1,5 +1,5 @@
 /**
- *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v6.1 (kakao/email login, server schedule, multi-feeder)
+ *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v6.2 (kakao/email login, server schedule, multi-feeder)
  *  Hubitat driver - unofficial, based on observed app traffic
  *
  *  Auth    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
@@ -86,6 +86,9 @@ metadata {
               options: ["ondemand": "필요할 때만 연결 (앱과 공존, 권장)",
                         "persistent": "상시 연결 (실시간 push, 앱이 끊김)"],
               defaultValue: "ondemand", required: true
+        input name: "scheduleSyncHours", type: "enum", title: "스케줄 서버 동기화 주기",
+              options: ["0": "끄기 (getSchedule 수동 실행)", "1": "1시간", "6": "6시간 (기본)", "12": "12시간", "24": "24시간"],
+              defaultValue: "6", required: false
         input name: "holdSeconds", type: "number", title: "세션 유지 시간 (초)",
               description: "온디맨드 모드에서 마지막 메시지 후 소켓을 닫기까지", defaultValue: 15
 
@@ -137,17 +140,24 @@ def initialize() {
     if (isOnDemand()) {
         // 소켓을 물고 있지 않는다. 상태는 HTTP 이력으로 갱신.
         runEvery15Minutes("pullHistory")
-        runEvery30Minutes("getSchedule")   // pick up schedule edits made in the app
         sendEvent(name: "connection", value: "idle")
         log.info "온디맨드 모드 — 명령이 있을 때만 접속합니다"
     } else {
         runEvery5Minutes("refresh")
         runEvery30Minutes("pullHistory")
-        runEvery30Minutes("getSchedule")
         log.warn "상시 연결 모드 — VARRAM 앱의 기기 연결이 끊길 수 있습니다"
     }
 
+    scheduleSyncJob()
     renewToken(true)
+}
+
+// Periodic schedule sync (picks up edits made in the official app). Default 6 h; 0 = manual getSchedule only.
+private scheduleSyncJob() {
+    int h = ((settings.scheduleSyncHours ?: "6") as Integer)
+    if (h <= 0) return
+    if (h >= 24) schedule("0 7 3 * * ?", "getSchedule")
+    else schedule("0 7 */${h} * * ?", "getSchedule")
 }
 
 def logsOff() {

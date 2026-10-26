@@ -80,10 +80,10 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 ## 스케줄 설정
 
-스케줄은 서버에서 자동으로 가져오므로 따로 입력할 필요가 없습니다. 서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), 드라이버는 시작할 때와 30분마다 이를 읽어 `scheduleSummary` 등에 표시합니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다.
+스케줄은 서버에서 자동으로 가져오므로 따로 입력할 필요가 없습니다. 서버가 슬롯별 시간·그램·ON/OFF를 모두 보관하며(`request_schedule_data`), 드라이버는 시작할 때와 설정한 주기(기본 6시간)마다 이를 읽어 `scheduleSummary` 등에 표시합니다. 공식 앱에서 바꾼 내용은 `getSchedule`을 실행하면 바로 반영됩니다.
 
 - 슬롯별 ON/OFF: `scheduleSlotOn(slot)` / `scheduleSlotOff(slot)` / `scheduleAllOn` / `scheduleAllOff` — 바꾼 내용이 기기와 서버에 바로 저장됩니다.
-- 시간·그램 변경: `importSchedule`에 새 스케줄을 넣은 뒤 `pushSchedule`을 실행합니다. `importSchedule`만으로는 **드라이버가 가진 스케줄만 바뀌고** 30분 뒤 서버 값으로 되돌아갑니다. 전송 후 앱의 스케줄 화면에서 확인하세요(시간·그램 전송은 아직 충분히 검증하지 못했습니다).
+- 시간·그램 변경: `importSchedule`에 새 스케줄을 넣은 뒤 `pushSchedule`을 실행합니다. `importSchedule`만으로는 **드라이버가 가진 스케줄만 바뀌고** 다음 동기화 때 서버 값으로 되돌아갑니다. 전송 후 앱의 스케줄 화면에서 확인하세요(시간·그램 전송은 아직 충분히 검증하지 못했습니다).
 - `readServerSchedule`: 서버 값을 로그로만 확인하는 읽기 전용 커맨드입니다.
 
 `importSchedule`은 JSON 배열 또는 압축 포맷(`시간,그램,온오프[,이름]`을 세미콜론으로 구분)을 받습니다.
@@ -168,6 +168,7 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 | 버전 | 변경 내용 |
 |---|---|
+| v6.2 | 스케줄 서버 동기화 주기를 설정으로 분리(끄기 / 1 / 6 / 12 / 24시간, 기본 6시간). 기존 30분 주기는 과해서 변경 |
 | v6.1 | `listDevices` 추가 — 계정에 연결된 `device_id` / `pet_id` 목록을 로그로 출력. 급식기가 여러 대일 때의 설정 방법을 문서화 |
 | v6.0 | 스케줄을 서버에서 자동으로 가져옴(`request_schedule_data`, 시작 시와 30분마다). `seedSchedule` 입력란 제거. `readServerSchedule` 추가. `lastFeedTime`을 급여 이력에서 갱신하고, 값이 없는 시각 속성은 `-`로 표시. 전화번호 로그인 제거(이메일만 지원). 드라이버 이름을 `VARRAM Mealle Feeder`로 통일하고 토큰 캡처 방식의 기존 드라이버를 폐지 |
 | v5.3 | 이메일 + 비밀번호 로그인 추가. `pushSchedule` 추가(드라이버의 스케줄을 기기로 전송). `seedSchedule`을 바꾸면 스케줄이 다시 로드되도록 수정 |
