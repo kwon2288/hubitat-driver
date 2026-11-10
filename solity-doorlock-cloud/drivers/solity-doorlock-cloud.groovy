@@ -19,6 +19,12 @@
  *   - 도어락이 응답하지 않으면 1분 → 2분 → 5분(이후 5분마다) 간격으로 다시 조회.
  *
  *  Author : kwon2288
+ *  Version: 1.2.6 (2026-11-10)  — 원본 HA 통합 v1.7.6 반영
+ *    - NEW: wake 명령 — 상태 조회를 1번 보내 도어락을 미리 깨움 (현관 모션·초인종 룰에서 호출)
+ *           명령·다른 조회·잠김 확인·무응답 재조회 중이거나 직전 깨우기 후 10초 안이면 보내지 않음
+ *           결과는 lastWakeResult (started / skipped_command / skipped_busy / skipped_verifying /
+ *           skipped_recent / skipped_session). 실패해도 재조회·무응답 처리를 하지 않음
+ *    - NEW: lastCommand / lastCommandSeconds — 마지막 열기·잠그기 API 호출 종류와 소요 시간(초)
  *  Version: 1.2.5 (2026-10-25)  — 원본 HA 통합 v1.7.4~1.7.5 반영
  *    - FIX: Hubitat 에서 연 직후 상태 조회를 몰아 보내 WiFi+ 모듈이 멈출 수 있던 문제
  *           첫 잠김 확인은 5초 뒤, 응답 없으면 3초 뒤 1번만 재시도 (로그로 감지한 열림은 그대로 즉시)
@@ -91,6 +97,8 @@ import groovy.transform.Field
 @Field static final int  HUB_UNLOCK_SETTLE        = 5      // 첫 확인까지 대기(초)
 @Field static final int  HUB_UNLOCK_POLL_RETRIES  = 1
 @Field static final int  HUB_UNLOCK_RETRY_DELAY   = 3
+// 미리 깨우기 (원본 v1.7.6)
+@Field static final int  WAKE_MIN_INTERVAL        = 10     // 이 안에는 다시 깨우지 않음(초)
 
 // retrieveLog: 열림 기록 코드
 @Field static final List OPEN_LOG_CODES = ["1", "7"]
@@ -145,9 +153,13 @@ metadata {
         attribute "passwordCount",    "number"
         attribute "apiStatus",        "enum", ["ok", "auth_failed", "error", "session_taken"]
         attribute "sessionResumeAt",  "string"   // 앱에 세션을 내준 뒤 다시 로그인할 시각
+        attribute "lastCommand",      "string"   // 마지막 열기/잠그기 명령 (unlock / lock)
+        attribute "lastCommandSeconds","number"  // 그 API 호출에 걸린 시간(초)
+        attribute "lastWakeResult",   "string"   // wake 명령 결과
 
         command "login"
         command "diagnose"
+        command "wake"
     }
 
     preferences {
@@ -254,6 +266,25 @@ def poll() { pollLog() }
 // ─────────────────────────────────────────────────────────────
 
 def refresh() { pollStatus(); pollLog() }
+
+/**
+ * 미리 깨우기: 곧 열릴 것 같을 때(현관 모션·초인종) 상태 조회를 1번 보내 도어락을 깨움.
+ * WiFi+ 모듈은 요청을 한 번에 하나만 처리하므로, 다른 요청이 진행 중이면 보내지 않고 건너뜀.
+ */
+def wake() {
+    String r
+    if (!canAuth())                                                                  r = "skipped_session"
+    else if (state.commandAt && now() - (state.commandAt as long) < (STATUS_TIMEOUT + 5) * 1000L) r = "skipped_command"
+    else if (state.statusBusyAt && now() - (state.statusBusyAt as long) < (STATUS_TIMEOUT + 5) * 1000L) r = "skipped_busy"
+    else if (isVerifying() || state.recover)                                         r = "skipped_verifying"
+    else if (state.lastWakeAt && now() - (state.lastWakeAt as long) < WAKE_MIN_INTERVAL * 1000L) r = "skipped_recent"
+    else r = "started"
+    sendEvent(name: "lastWakeResult", value: r, isStateChange: true)
+    if (txtEnable) log.info "미리 깨우기: ${r}"
+    if (r != "started") return
+    state.lastWakeAt = now()
+    requestStatus("wake", VERIFY_TIMEOUT)   // 짧게 끊음: 응답은 덤, 깨우는 게 목적
+}
 
 def unlock() {
     if (txtEnable) log.info "열기 요청(open)"
@@ -382,7 +413,8 @@ private int control(String controlType) {
     String devId = resolvedDeviceId()
     if (!devId) return 0
     int result = 0
-    state.commandAt = now()   // 명령 중에는 상태 조회를 미룸
+    long t0 = now()
+    state.commandAt = t0      // 명령 중에는 상태 조회를 미룸
     authed("PUT", "/api_v2/controlDevice/${devId}", [controlType: controlType, optionValue: "1"], { status, data ->
         result = status as int
         if (status == 200) sendEvent(name: "apiStatus", value: "ok")
@@ -390,6 +422,8 @@ private int control(String controlType) {
         else log.error "${controlType} 실패 (HTTP ${status})"
     }, STATUS_TIMEOUT)
     state.remove("commandAt")
+    setAttr("lastCommand", controlType == "open" ? "unlock" : "lock")
+    sendEvent(name: "lastCommandSeconds", value: Math.round((now() - t0) / 10.0) / 100.0, unit: "s")
     return result
 }
 
@@ -464,12 +498,13 @@ private onStatus(String kind, Map st, Map data) {
         sendEvent(name: "apiStatus", value: "ok")
         applyStatus(st)
         if (stale) setAttr("confirmed", "false")
-    } else if (!(kind == "regular" && !data.wakeRetry)) {
-        setAttr("confirmed", "false")   // 깨우기 재조회 전 첫 실패는 제외
+    } else if (kind != "wake" && !(kind == "regular" && !data.wakeRetry)) {
+        setAttr("confirmed", "false")   // 깨우기 재조회 전 첫 실패, 미리 깨우기 실패는 제외
     }
     switch (kind) {
         case "verify":  verifyResult(ok, st, data, stale); break
         case "recover": recoverResult(ok); break
+        case "wake":    if (logEnable) log.debug "미리 깨우기 응답: ${ok ? '받음' : '없음'}"; break
         default:        regularResult(ok, data); break
     }
 }

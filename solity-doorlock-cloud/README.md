@@ -70,6 +70,7 @@
 | `refresh` | 상태와 출입 로그를 즉시 조회 (도어락을 깨움) |
 | `login` | 강제 재로그인 |
 | `diagnose` | 연결 상태, 잠김 확인 상태, 기기 목록, 최근 출입 로그 5건의 원본을 로그에 출력 |
+| `wake` | 상태 조회를 1번 보내 도어락을 미리 깨움. 현관 모션·초인종 룰에서 부르는 용도 ([미리 깨우기](#미리-깨우기-wake)) |
 
 ## 속성
 
@@ -124,6 +125,8 @@
 | `subLatch` / `systemMode` | 도어락이 보고하는 원본 값 |
 | `apiStatus` | `ok` / `auth_failed` / `error` / `session_taken` |
 | `sessionResumeAt` | 앱에 세션을 양보한 뒤 다시 로그인할 시각 |
+| `lastCommand` / `lastCommandSeconds` | 마지막 열기·잠그기 명령(`unlock` / `lock`)과 그 API 호출에 걸린 시간(초). 지연 측정용 |
+| `lastWakeResult` | 마지막 `wake` 결과 (`started` / `skipped_*`) |
 
 ## 자동화에서 쓰기
 
@@ -149,6 +152,26 @@
 이벤트 `data`에도 `user`, `method`, `time`, `message`, `mediaType`, `codeName`이 들어 있어 커스텀 앱에서 읽을 수 있습니다. 이벤트 `type`은 원격(앱·Hubitat)이면 `digital`, 그 외는 `physical`입니다.
 
 **대시보드**: Attribute 타일을 추가하고 `accessHistory`를 선택하면 최근 출입 내역이 표로 나옵니다.
+
+### 미리 깨우기 (`wake`)
+
+도어락은 평소 절전 상태라 원격 열기나 얼굴인식 직후 반응이 늦을 수 있습니다. 누군가 문 앞에 온 것 같을 때 `wake`를 부르면 상태 조회를 1번 보내 미리 깨웁니다.
+
+- Trigger: 현관 모션 센서 *active* (또는 초인종 눌림)
+- Action: `솔리티`에 Run Custom Action → `wake`
+
+도어락 WiFi+ 모듈은 요청을 한 번에 하나만 처리하므로, 다음 경우에는 보내지 않고 건너뜁니다. 결과는 `lastWakeResult`에 남습니다.
+
+| 결과 | 뜻 |
+|---|---|
+| `started` | 상태 조회를 보냄 |
+| `skipped_command` | 열기·잠그기 명령을 보내는 중 |
+| `skipped_busy` | 다른 상태 조회가 진행 중 |
+| `skipped_verifying` | 열림 후 잠김 확인 또는 무응답 재조회 중 |
+| `skipped_recent` | 직전 깨우기 후 10초가 안 지남 |
+| `skipped_session` | 폰 앱에 세션을 양보하는 중 |
+
+깨우기 조회는 3초에 끊고, 응답이 없어도 재조회나 무응답 처리를 하지 않습니다. 응답이 오면 상태 값은 평소처럼 갱신됩니다.
 
 ## 동작 원리
 
@@ -234,7 +257,8 @@
 
 | 버전 | 주요 변경 |
 |---|---|
-| **1.2.5** | 원본 HA 통합 v1.7.4~1.7.5 반영: Hubitat에서 연 뒤 첫 확인 5초 뒤·재시도 3초 뒤 1회, 5초 안의 "잠김"은 이전값으로 무시(`잠김(이전값)`), 데드볼트 없는 응답은 실패 처리, 명령 중 상태 조회 보류 |
+| **1.2.6** | 원본 HA 통합 v1.7.6 반영: `wake` 명령(안전장치 포함 미리 깨우기, `lastWakeResult`), `lastCommand` / `lastCommandSeconds` 속성 |
+| 1.2.5 | 원본 HA 통합 v1.7.4~1.7.5 반영: Hubitat에서 연 뒤 첫 확인 5초 뒤·재시도 3초 뒤 1회, 5초 안의 "잠김"은 이전값으로 무시(`잠김(이전값)`), 데드볼트 없는 응답은 실패 처리, 명령 중 상태 조회 보류 |
 | 1.2.4 | 열림 로그 폴링을 비동기 HTTP로(허브 스레드 부하 제거), 진행 중인 로그 요청과 겹치지 않게 |
 | 1.2.3 | 속성 비교 시 허브 캐시를 건너뜀(문 센서·`confirmed` 이벤트 누락 수정), 깨우기 재조회 전 첫 실패는 `confirmed`를 바꾸지 않음 |
 | 1.2.2 | 폰 앱과 같은 계정을 쓸 때 허브가 바로 재로그인하지 않고 양보(`session_taken`, 재로그인 대기 설정) |
@@ -245,7 +269,7 @@
 
 ## 크레딧
 
-클라우드 API 엔드포인트, `mediaType` 코드, 잠김 확인 전략은 [tpgi2013-hue/Smart-Solity-Doorlock](https://github.com/tpgi2013-hue/Smart-Solity-Doorlock) (Home Assistant 통합 v1.7.5, MIT)를 참고해 Hubitat용으로 옮겼습니다.
+클라우드 API 엔드포인트, `mediaType` 코드, 잠김 확인 전략은 [tpgi2013-hue/Smart-Solity-Doorlock](https://github.com/tpgi2013-hue/Smart-Solity-Doorlock) (Home Assistant 통합 v1.7.6, MIT)를 참고해 Hubitat용으로 옮겼습니다.
 
 ## 라이선스
 
