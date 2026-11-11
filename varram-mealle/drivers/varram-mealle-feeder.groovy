@@ -26,45 +26,45 @@ metadata {
         capability "Refresh"
         capability "Sensor"
 
-        attribute "feedingStatus",   "string"
-        attribute "leftFeed",        "number"
-        attribute "foodLack",        "string"
-        attribute "lastFeedPortions", "number"   // 마지막 수동 급여 횟수 (1회 = 앱의 '1회 급여하기')
-        attribute "lastFeedTime",    "string"
-        attribute "dailyFeedPortions", "number"  // 오늘 수동 급여 누적 횟수
-        attribute "dailyGivenGram",  "number"
-        attribute "dailyIntakeGram", "number"
-        attribute "appGivenGram",    "number"
-        attribute "appIntakeGram",   "number"
-        attribute "feedFailCount",   "number"
-        attribute "feedOkCount",     "number"
-        attribute "lastFailTime",    "string"
-        attribute "lastBowlEmptyTime", "string"   // 사용자가 식기를 비운 마지막 시각
-        attribute "lastEatTime",     "string"
-        attribute "powerSource",     "string"
-        attribute "connection",      "string"   // online | connecting | idle | offline
-        attribute "firmware",        "string"
+        attribute "급여상태",   "string"
+        attribute "잔여사료",        "number"
+        attribute "사료부족",        "string"
+        attribute "마지막급여횟수", "number"   // 마지막 수동 급여 횟수 (1회 = 앱의 '1회 급여하기')
+        attribute "마지막급여시각",    "string"
+        attribute "오늘수동급여횟수", "number"  // 오늘 수동 급여 누적 횟수
+        attribute "오늘배급량실측",  "number"
+        attribute "오늘섭취량실측", "number"
+        attribute "오늘배급량앱",    "number"
+        attribute "오늘섭취량앱",   "number"
+        attribute "급여실패횟수",   "number"
+        attribute "급여성공횟수",     "number"
+        attribute "마지막실패시각",    "string"
+        attribute "마지막식기비움시각", "string"   // 사용자가 식기를 비운 마지막 시각
+        attribute "마지막섭취시각",     "string"
+        attribute "전원",     "string"
+        attribute "연결상태",      "string"   // online | connecting | idle | offline
+        attribute "펌웨어",        "string"
 
-        attribute "scheduleSummary",    "string"
-        attribute "scheduleActiveGram", "number"
-        attribute "scheduleSlots",      "number"
+        attribute "스케줄요약",    "string"
+        attribute "스케줄활성합계", "number"
+        attribute "스케줄슬롯수",      "number"
 
-        command "feed",       [[name: "portions*", type: "NUMBER", description: "급여 횟수 (회). 1회 = 앱의 \"1회 급여하기\" (스케줄 1끼분)"]]
-        command "pullHistory"
-        command "dumpHistory"
-        command "getSchedule"
-        command "importSchedule", [[name: "s_list JSON*", type: "STRING", description: "스케줄 JSON 배열"]]
-        command "exportSchedule"
-        command "readServerSchedule"
-        command "listDevices"
-        command "pushSchedule"
-        command "scheduleSlotOn",  [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
-        command "scheduleSlotOff", [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
-        command "scheduleAllOn"
-        command "scheduleAllOff"
-        command "dumpDeviceInfo"
-        command "closeSession"
-        command "reconnect"
+        command "급여",       [[name: "portions*", type: "NUMBER", description: "급여 횟수 (회). 1회 = 앱의 \"1회 급여하기\" (스케줄 1끼분)"]]
+        command "이력조회"
+        command "이력출력"
+        command "스케줄조회"
+        command "스케줄가져오기", [[name: "s_list JSON*", type: "STRING", description: "스케줄 JSON 배열"]]
+        command "스케줄내보내기"
+        command "서버스케줄확인"
+        command "기기목록"
+        command "스케줄전송"
+        command "슬롯켜기",  [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
+        command "슬롯끄기", [[name: "slot*", type: "NUMBER", description: "슬롯 번호 (1부터)"]]
+        command "전체켜기"
+        command "전체끄기"
+        command "기기정보출력"
+        command "세션종료"
+        command "재연결"
     }
 
     preferences {
@@ -131,7 +131,7 @@ def initialize() {
     if (!state.refreshToken) state.refreshToken = settings.initToken
     rollDayIfNeeded()
     // 첫 실제 값이 들어오기 전까지 자리표시자를 넣어 기기 페이지에 속성이 보이게 함
-    ["lastFeedTime", "lastEatTime", "lastFailTime", "lastBowlEmptyTime"].each {
+    ["마지막급여시각", "마지막섭취시각", "마지막실패시각", "마지막식기비움시각"].each {
         if (device.currentValue(it) == null) sendEvent(name: it, value: "-")
     }
 
@@ -141,7 +141,7 @@ def initialize() {
     if (isOnDemand()) {
         // 소켓을 물고 있지 않는다. 상태는 HTTP 이력으로 갱신.
         runEvery15Minutes("pullHistory")
-        sendEvent(name: "connection", value: "idle")
+        sendEvent(name: "연결상태", value: "idle")
         log.info "온디맨드 모드 — 명령이 있을 때만 접속합니다"
     } else {
         runEvery5Minutes("refresh")
@@ -219,7 +219,7 @@ def renewToken(boolean initialRun = false) {
             return
         }
         log.error "앱 재로그인 후 refresh token 재등록이 필요할 수 있습니다"
-        sendEvent(name: "connection", value: "offline")
+        sendEvent(name: "연결상태", value: "offline")
         runIn(300, "renewToken")
     }
 }
@@ -280,13 +280,13 @@ private doLogin(Map req, String label, boolean initialRun) {
                 }
             } else {
                 log.error "${label} 로그인 응답에 토큰이 없습니다 (키 이름을 위 로그에서 확인): ${(d instanceof Map) ? d.type : ''}"
-                sendEvent(name: "connection", value: "offline")
+                sendEvent(name: "연결상태", value: "offline")
                 runIn(1800, "renewToken")
             }
         }
     } catch (e) {
         log.error "${label} 로그인 실패: ${e.message}"
-        sendEvent(name: "connection", value: "offline")
+        sendEvent(name: "연결상태", value: "offline")
         runIn(1800, "renewToken")
     }
 }
@@ -439,17 +439,17 @@ def pullHistory() {
         }
     }
 
-    sendEvent(name: "dailyGivenGram",  value: measGiven,  unit: "g")
-    sendEvent(name: "dailyIntakeGram", value: measIntake, unit: "g")
-    sendEvent(name: "appGivenGram",    value: appGiven,   unit: "g")
-    sendEvent(name: "appIntakeGram",   value: appIntake,  unit: "g")
-    sendEvent(name: "leftFeed",        value: lastLeft,   unit: "g")
-    sendEvent(name: "feedOkCount",     value: okCount)
-    sendEvent(name: "feedFailCount",   value: failCount)
-    if (lastGive) sendEvent(name: "lastFeedTime", value: lastGive)
-    if (lastEat)  sendEvent(name: "lastEatTime",  value: lastEat)
-    if (lastFail) sendEvent(name: "lastFailTime", value: lastFail)
-    if (lastBowl) sendEvent(name: "lastBowlEmptyTime", value: lastBowl)
+    sendEvent(name: "오늘배급량실측",  value: measGiven,  unit: "g")
+    sendEvent(name: "오늘섭취량실측", value: measIntake, unit: "g")
+    sendEvent(name: "오늘배급량앱",    value: appGiven,   unit: "g")
+    sendEvent(name: "오늘섭취량앱",   value: appIntake,  unit: "g")
+    sendEvent(name: "잔여사료",        value: lastLeft,   unit: "g")
+    sendEvent(name: "급여성공횟수",     value: okCount)
+    sendEvent(name: "급여실패횟수",   value: failCount)
+    if (lastGive) sendEvent(name: "마지막급여시각", value: lastGive)
+    if (lastEat)  sendEvent(name: "마지막섭취시각",  value: lastEat)
+    if (lastFail) sendEvent(name: "마지막실패시각", value: lastFail)
+    if (lastBowl) sendEvent(name: "마지막식기비움시각", value: lastBowl)
 
     if (failCount > 0) {
         log.warn "급여 실패 ${failCount}회 (마지막 ${lastFail}) — 사료통을 확인하세요"
@@ -516,7 +516,7 @@ def getSchedule() {
         log.warn "서버에서 스케줄을 읽지 못해 마지막으로 알려진 스케줄을 유지합니다"
     } else {
         log.error "서버에서 스케줄을 읽지 못했고 저장된 스케줄도 없습니다"
-        sendEvent(name: "scheduleSummary", value: "미확인")
+        sendEvent(name: "스케줄요약", value: "미확인")
         return
     }
     renderSchedule()
@@ -614,7 +614,7 @@ def dumpDeviceInfo() {
 
 private renderSchedule() {
     def sl = state.schedule?.s_list
-    if (!sl) { sendEvent(name: "scheduleSummary", value: "미확인"); return }
+    if (!sl) { sendEvent(name: "스케줄요약", value: "미확인"); return }
     def sorted = sl.sort { it.time }
     BigDecimal total = 0
     def parts = []
@@ -622,16 +622,16 @@ private renderSchedule() {
         if (s.on) total += (s.gram as BigDecimal)
         parts << "${i+1}) ${s.time} ${s.gram}g ${s.on ? 'ON' : 'off'}"
     }
-    sendEvent(name: "scheduleSummary",    value: parts.join(" | "))
-    sendEvent(name: "scheduleActiveGram", value: total, unit: "g")
-    sendEvent(name: "scheduleSlots",      value: sorted.size())
+    sendEvent(name: "스케줄요약",    value: parts.join(" | "))
+    sendEvent(name: "스케줄활성합계", value: total, unit: "g")
+    sendEvent(name: "스케줄슬롯수",      value: sorted.size())
     log.info "스케줄: ${parts.join(' | ')}  (활성 합계 ${total}g)"
 }
 
 // 드라이버가 가진 스케줄(시간/그램/온오프)을 그대로 기기에 전송한다. 응답이 없으면 25초 뒤 로그에 오류를 남긴다.
 def pushSchedule() {
     def sl = state.schedule?.s_list
-    if (!sl) { log.error "스케줄이 없습니다. getSchedule 또는 importSchedule 을 먼저 실행하세요"; return }
+    if (!sl) { log.error "스케줄이 없습니다. 스케줄조회 또는 스케줄가져오기를 먼저 실행하세요"; return }
     log.info "스케줄 ${sl.size()}개 슬롯을 기기로 전송합니다"
     applySchedule()
 }
@@ -641,7 +641,7 @@ def scheduleSlotOff(BigDecimal slot) { setSlot(slot as Integer, false) }
 
 private setSlot(Integer slot, boolean on) {
     def sl = state.schedule?.s_list
-    if (!sl) { log.error "스케줄을 먼저 조회하세요 (getSchedule)"; return }
+    if (!sl) { log.error "스케줄을 먼저 조회하세요 (스케줄조회)"; return }
     def sorted = sl.sort { it.time }
     if (slot < 1 || slot > sorted.size()) { log.error "슬롯 번호 범위 초과 (1~${sorted.size()})"; return }
     sorted[slot - 1].on = on
@@ -655,7 +655,7 @@ def scheduleAllOff() { setAll(false) }
 
 private setAll(boolean on) {
     def sl = state.schedule?.s_list
-    if (!sl) { log.error "스케줄을 먼저 조회하세요 (getSchedule)"; return }
+    if (!sl) { log.error "스케줄을 먼저 조회하세요 (스케줄조회)"; return }
     sl.each { it.on = on }
     state.schedule.s_list = sl
     log.info "전체 슬롯 → ${on ? 'ON' : 'OFF'}"
@@ -694,7 +694,7 @@ private queueMsg(Map msg) {
     def q = (state.q ?: [])
     q << msg
     state.q = q
-    if (device.currentValue("connection") == "online") flushQueue()
+    if (device.currentValue("연결상태") == "online") flushQueue()
     else connectSocket()
 }
 
@@ -719,16 +719,16 @@ def idleClose() {
     if ((state.q ?: []).size() > 0) { runIn(5, "idleClose"); return }
     if (settings.logEnable) log.debug "세션 종료 (idle)"
     closeSocket()
-    sendEvent(name: "connection", value: "idle")
+    sendEvent(name: "연결상태", value: "idle")
 }
 
 def closeSession() { state.q = []; state.pendingSchedule = false; idleCloseForce() }
-private idleCloseForce() { closeSocket(); sendEvent(name: "connection", value: "idle") }
+private idleCloseForce() { closeSocket(); sendEvent(name: "연결상태", value: "idle") }
 
 def connectSocket() {
     if (!state.accessToken) { renewToken(true); return }
     def url = "${WS_BASE}?auth=${state.accessToken}&target=${devId()}"
-    sendEvent(name: "connection", value: "connecting")
+    sendEvent(name: "연결상태", value: "connecting")
     try {
         interfaces.webSocket.connect(url, pingInterval: 30)
     } catch (e) {
@@ -744,13 +744,13 @@ def reconnect() { closeSocket(); runIn(2, "connectSocket") }
 def webSocketStatus(String status) {
     if (settings.logEnable) log.debug "webSocketStatus: ${status}"
     if (status.startsWith("status: open")) {
-        sendEvent(name: "connection", value: "online")
+        sendEvent(name: "연결상태", value: "online")
         state.backoff = 5
         if ((state.q ?: []).size() > 0) flushQueue() else touchIdle()
     } else if (status.startsWith("status: closing")) {
-        sendEvent(name: "connection", value: isOnDemand() ? "idle" : "offline")
+        sendEvent(name: "연결상태", value: isOnDemand() ? "idle" : "offline")
     } else if (status.startsWith("failure")) {
-        sendEvent(name: "connection", value: isOnDemand() ? "idle" : "offline")
+        sendEvent(name: "연결상태", value: isOnDemand() ? "idle" : "offline")
         if (status.toLowerCase().contains("401") || status.toLowerCase().contains("403")) {
             runIn(3, "renewToken")
         } else if (!isOnDemand()) {
@@ -801,9 +801,9 @@ def feed(BigDecimal portions) {
 
     state.lastFeedAt = now()
     state.dailyPortions = today + portions
-    sendEvent(name: "lastFeedPortions", value: portions)
-    sendEvent(name: "lastFeedTime", value: new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone))
-    sendEvent(name: "dailyFeedPortions", value: state.dailyPortions)
+    sendEvent(name: "마지막급여횟수", value: portions)
+    sendEvent(name: "마지막급여시각", value: new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone))
+    sendEvent(name: "오늘수동급여횟수", value: state.dailyPortions)
 
     queueMsg([type: "req_feeding",
               data: [device_id: devId(), msg_id: uid(), gram: portions as Integer]])
@@ -816,7 +816,7 @@ private rollDayIfNeeded() {
     if (state.dailyDate != d) {
         state.dailyDate = d
         state.dailyPortions = 0
-        sendEvent(name: "dailyFeedPortions", value: 0)
+        sendEvent(name: "오늘수동급여횟수", value: 0)
     }
 }
 
@@ -833,14 +833,14 @@ def parse(String description) {
     def d = msg?.data
     switch (msg?.type) {
         case "nt_device_status":
-            if (d?.feeding?.type != null)      sendEvent(name: "feedingStatus", value: d.feeding.type)
-            if (d?.feeding?.left_feed != null) sendEvent(name: "leftFeed", value: d.feeding.left_feed, unit: "g")
+            if (d?.feeding?.type != null)      sendEvent(name: "급여상태", value: d.feeding.type)
+            if (d?.feeding?.left_feed != null) sendEvent(name: "잔여사료", value: d.feeding.left_feed, unit: "g")
             if (d?.feed_lack != null) {
-                sendEvent(name: "foodLack", value: d.feed_lack.toString())
+                sendEvent(name: "사료부족", value: d.feed_lack.toString())
                 if (d.feed_lack) log.warn "사료 부족 감지"
             }
-            if (d?.power?.type != null) sendEvent(name: "powerSource", value: d.power.type)
-            if (d?.stm_ver != null) sendEvent(name: "firmware", value: "stm ${d.stm_ver} / esp ${d.esp_ver} / pba ${d.pba_ver}")
+            if (d?.power?.type != null) sendEvent(name: "전원", value: d.power.type)
+            if (d?.stm_ver != null) sendEvent(name: "펌웨어", value: "stm ${d.stm_ver} / esp ${d.esp_ver} / pba ${d.pba_ver}")
             break
 
         case "rsp_feeding":
@@ -859,3 +859,21 @@ def parse(String description) {
             if (settings.logEnable) log.debug "미처리 타입: ${msg?.type}"
     }
 }
+
+// ── 한글 명령 이름 (기기 페이지 Commands 메뉴용) — 내부 로직은 위의 영문 메서드를 그대로 사용 ──
+def 급여(BigDecimal portions)          { feed(portions) }
+def 이력조회()                         { pullHistory() }
+def 이력출력()                         { dumpHistory() }
+def 스케줄조회()                       { getSchedule() }
+def 스케줄가져오기(String raw)         { importSchedule(raw) }
+def 스케줄내보내기()                   { exportSchedule() }
+def 서버스케줄확인()                   { readServerSchedule() }
+def 기기목록()                         { listDevices() }
+def 스케줄전송()                       { pushSchedule() }
+def 슬롯켜기(BigDecimal slot)          { scheduleSlotOn(slot) }
+def 슬롯끄기(BigDecimal slot)          { scheduleSlotOff(slot) }
+def 전체켜기()                         { scheduleAllOn() }
+def 전체끄기()                         { scheduleAllOff() }
+def 기기정보출력()                     { dumpDeviceInfo() }
+def 세션종료()                         { closeSession() }
+def 재연결()                           { reconnect() }
