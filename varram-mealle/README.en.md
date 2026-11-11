@@ -8,7 +8,7 @@ The Mealle has no public API and supports neither Matter, SmartThings, HomeKit, 
 
 ## Features
 
-- Manual feeding (`feed(portions)`) with three safety guards: per-call cap, minimum interval, daily total limit. **The unit is portions, not grams** (see the note below)
+- Manual feeding (`급여(portions)`) with three safety guards: per-call cap, minimum interval, daily total limit. **The unit is portions, not grams** (see the note below)
 - Per-slot schedule ON/OFF
 - Today's dispensed amount, intake, and bowl remainder
 - Feed failure detection (empty hopper) with failure count
@@ -80,13 +80,13 @@ The app has no SSL pinning, so no bypass is needed.
 
 ## Schedule
 
-The schedule is fetched from the server automatically; there is nothing to enter. The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and at the configured interval (default 6 hours) and shows it in `scheduleSummary`. Run `getSchedule` to pick up changes made in the official app immediately.
+The schedule is fetched from the server automatically; there is nothing to enter. The server stores the full schedule including per-slot time, gram and ON/OFF (`request_schedule_data`). The driver reads it on start and at the configured interval (default 6 hours) and shows it in `스케줄요약`. Run `스케줄조회` to pick up changes made in the official app immediately.
 
-- Per-slot ON/OFF: `scheduleSlotOn(slot)` / `scheduleSlotOff(slot)` / `scheduleAllOn` / `scheduleAllOff` — changes are sent to the feeder and saved to the server right away.
-- Changing times or grams: pass the new schedule to `importSchedule`, then run `pushSchedule`. `importSchedule` alone only changes the schedule **held by the driver**, which reverts to the server's copy at the next sync. Verify in the app's schedule screen afterwards (sending time/gram changes is not yet well tested).
-- `readServerSchedule`: read-only command that just logs the server's copy.
+- Per-slot ON/OFF: `슬롯켜기(slot)` / `슬롯끄기(slot)` / `전체켜기` / `전체끄기` — changes are sent to the feeder and saved to the server right away.
+- Changing times or grams: pass the new schedule to `스케줄가져오기`, then run `스케줄전송`. `스케줄가져오기` alone only changes the schedule **held by the driver**, which reverts to the server's copy at the next sync. Verify in the app's schedule screen afterwards (sending time/gram changes is not yet well tested).
+- `서버스케줄확인`: read-only command that just logs the server's copy.
 
-`importSchedule` accepts a JSON array or the compact format (`time,grams,onoff[,name]`, semicolon-separated):
+`스케줄가져오기` accepts a JSON array or the compact format (`time,grams,onoff[,name]`, semicolon-separated):
 
 ```
 00:06,6,1;03:00,6,1;06:00,6,1;09:00,6,1;12:00,6,1;15:00,6,1;18:00,6,1;21:00,6,0
@@ -96,14 +96,14 @@ The schedule is fetched from the server automatically; there is nothing to enter
 
 Auto-discovery only picks the first feeder linked to the account. With two or more, create one Hubitat virtual device per feeder with this driver, enter the login details, and set each device's `Device ID` and `Pet ID` explicitly.
 
-1. Run `listDevices` on any device; the account's `device_id` / `pet_id` / model list is written to the log (tokens, serials etc. are not printed).
+1. Run `기기목록` on any device; the account's `device_id` / `pet_id` / model list is written to the log (tokens, serials etc. are not printed).
 2. Put the matching values into each device's `Device ID` and `Pet ID` preferences and **Save Preferences**.
 
 Each device logs in separately with the same account; whether a fresh login invalidates another device's token is unverified.
 
 ## Manual feeding unit (important)
 
-The value of `feed(portions)` is a **number of portions, not grams**. `feed(1)` equals the official app's "feed once" and dispenses one scheduled meal (close to the configured dose — about 7 g measured for an 8 g setting). Passing a gram value such as `feed(8)` dispenses eight portions (about 58 g). Guards: `maxFeedPortions` (per call, default 2), `dailyCapPortions` (manual total per day, default 4) and `minInterval` (seconds). If you have rules that used `feed(gram)` on v6.x or earlier, change them to portions.
+The value of `급여(portions)` is a **number of portions, not grams**. `급여(1)` equals the official app's "feed once" and dispenses one scheduled meal (close to the configured dose — about 7 g measured for an 8 g setting). Passing a gram value such as `급여(8)` dispenses eight portions (about 58 g). Guards: `maxFeedPortions` (per call, default 2), `dailyCapPortions` (manual total per day, default 4) and `minInterval` (seconds). If you have rules that used `급여(gram)` on v6.x or earlier, change them to portions.
 
 ## Connection modes
 
@@ -120,17 +120,17 @@ In on-demand mode, state is refreshed through the HTTP history endpoint every 15
 
 | Name | Description |
 |---|---|
-| `dailyGivenGram` / `dailyIntakeGram` | Dispensed / consumed, by load-cell measurement |
-| `appGivenGram` / `appIntakeGram` | Same figures converted to match the official app's display |
-| `feedOkCount` / `feedFailCount` / `lastFailTime` | Successful and failed feeds, last failure timestamp |
-| `lastBowlEmptyTime` | Last time the user emptied the bowl (`none_bowl` record) |
-| `leftFeed` | Food remaining in the bowl |
-| `lastEatTime` | Last time the pet ate |
-| `foodLack` | Hopper low |
-| `feedingStatus` | `waiting` / `feed_start` / `feed_finish` / `eat` |
-| `scheduleSummary` / `scheduleActiveGram` / `scheduleSlots` | Schedule overview |
-| `connection` | `online` / `connecting` / `idle` / `offline` |
-| `powerSource` / `firmware` | Power type, firmware versions |
+| `오늘배급량실측` / `오늘섭취량실측` | Dispensed / consumed, by load-cell measurement |
+| `오늘배급량앱` / `오늘섭취량앱` | Same figures converted to match the official app's display |
+| `급여성공횟수` / `급여실패횟수` / `마지막실패시각` | Successful and failed feeds, last failure timestamp |
+| `마지막식기비움시각` | Last time the user emptied the bowl (`none_bowl` record) |
+| `잔여사료` | Food remaining in the bowl |
+| `마지막섭취시각` | Last time the pet ate |
+| `사료부족` | Hopper low |
+| `급여상태` | `waiting` / `feed_start` / `feed_finish` / `eat` |
+| `스케줄요약` / `스케줄활성합계` / `스케줄슬롯수` | Schedule overview |
+| `연결상태` | `online` / `connecting` / `idle` / `offline` |
+| `전원` / `펌웨어` | Power type, firmware versions |
 
 ### Why measured and app-displayed values differ
 
@@ -140,11 +140,11 @@ The `gram` field is the load cell's actual dispensed weight (a calibrated value,
 app intake = floor(measured intake × configured portion ÷ measured dispense)
 ```
 
-Both are exposed. Use `dailyIntakeGram` for true weight, or `appIntakeGram` when cross-checking against the app.
+Both are exposed. Use `오늘섭취량실측` for true weight, or `오늘섭취량앱` when cross-checking against the app.
 
 ## Commands
 
-`feed(portions)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`급여(portions)` `이력조회` `이력출력` `스케줄조회` `스케줄가져오기` `스케줄내보내기` `서버스케줄확인` `기기목록` `스케줄전송` `슬롯켜기(slot)` `슬롯끄기(slot)` `전체켜기` `전체끄기` `기기정보출력` `세션종료` `재연결`
 
 Slot numbers are 1-based, ordered by time.
 
@@ -158,8 +158,8 @@ A Rule Machine notification on `feedFailCount > 0` tells you immediately when a 
 |---|---|---|
 | `feed_finish` | Right after dispensing | Counted as given |
 | `waiting` | After eating (last record's `left` is the remainder) | Used for intake |
-| `empty_feed` | Feeding failed (low food / small dispense) | Counted as failure, updates `lastFailTime` |
-| `none_bowl` | User emptied the bowl (`gram=0`) | Not a failure; time stored in `lastBowlEmptyTime` |
+| `empty_feed` | Feeding failed (low food / small dispense) | Counted as failure, updates `마지막실패시각` |
+| `none_bowl` | User emptied the bowl (`gram=0`) | Not a failure; time stored in `마지막식기비움시각` |
 
 ## Known limitations
 
@@ -172,12 +172,13 @@ A Rule Machine notification on `feedFailCount > 0` tells you immediately when a 
 
 | Version | Changes |
 |---|---|
-| v7.0 | **Manual `feed` now takes portions instead of grams.** The `gram` field of the feeding request is the number of "feed once" portions, not grams, so sending 8 dispensed about 58 g instead of 8 g. `feed(1)` = the app's "feed once" (one scheduled meal). Preferences `maxFeedGram`/`dailyCap` (g) are replaced by `maxFeedPortions` (default 2) / `dailyCapPortions` (default 4); attributes `lastFeedGram`/`dailyFeedGram` by `lastFeedPortions`/`dailyFeedPortions` |
+| v7.1 | **Commands and attributes renamed to Korean** (e.g. `급여` = feed, `스케줄조회` = getSchedule, `마지막급여시각` = lastFeedTime, `연결상태` = connection). Logs and comments are Korean too. **Rules/dashboards that use the English names must be re-linked to the new names.** |
+| v7.0 | **Manual `급여` now takes portions instead of grams.** The `gram` field of the feeding request is the number of "feed once" portions, not grams, so sending 8 dispensed about 58 g instead of 8 g. `급여(1)` = the app's "feed once" (one scheduled meal). Preferences `maxFeedGram`/`dailyCap` (g) are replaced by `maxFeedPortions` (default 2) / `dailyCapPortions` (default 4); attributes `lastFeedGram`/`dailyFeedGram` by `마지막급여횟수`/`오늘수동급여횟수` |
 | v6.2 | The schedule sync interval is now a preference (off / 1 / 6 / 12 / 24 h, default 6 h); the former 30-minute interval was excessive |
-| v6.1 | Added `listDevices` — logs the account's `device_id` / `pet_id` list. Documented setup for multiple feeders |
-| v6.0 | Schedule is now read from the server automatically (`request_schedule_data`, on start and every 30 minutes); the `seedSchedule` preference is removed. Added `readServerSchedule`. `lastFeedTime` is now updated from the feeding history and timestamp attributes without a value show `-`. Phone-number login removed (email only). Driver renamed to `VARRAM Mealle Feeder`; the legacy token-capture driver is retired |
-| v5.3 | Added email + password login. Added `pushSchedule` (sends the driver's schedule to the feeder). Fixed `seedSchedule` changes not being reloaded |
-| v5.2 | Auto-discovery of User ID / Device ID / Pet ID after login. `none_bowl` (bowl emptied) is no longer counted as a failure and is recorded in `lastBowlEmptyTime` |
+| v6.1 | Added `기기목록` — logs the account's `device_id` / `pet_id` list. Documented setup for multiple feeders |
+| v6.0 | Schedule is now read from the server automatically (`request_schedule_data`, on start and every 30 minutes); the `seedSchedule` preference is removed. Added `서버스케줄확인`. `마지막급여시각` is now updated from the feeding history and timestamp attributes without a value show `-`. Phone-number login removed (email only). Driver renamed to `VARRAM Mealle Feeder`; the legacy token-capture driver is retired |
+| v5.3 | Added email + password login. Added `스케줄전송` (sends the driver's schedule to the feeder). Fixed `seedSchedule` changes not being reloaded |
+| v5.2 | Auto-discovery of User ID / Device ID / Pet ID after login. `none_bowl` (bowl emptied) is no longer counted as a failure and is recorded in `마지막식기비움시각` |
 | v5.1 | Added Kakao ID login and automatic re-login when the refresh token renewal fails |
 | v5 and earlier | Token-capture setup. Manual feeding (three safety guards), schedule slot ON/OFF, given/intake/remaining grams, failure counting, on-demand connection mode (coexists with the app) |
 

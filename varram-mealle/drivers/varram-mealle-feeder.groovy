@@ -1,5 +1,5 @@
 /**
- *  VARRAM Mealle (밀리) 스마트 펫 급식기  -  v7.0 (카카오/이메일 로그인, 서버 스케줄, 다중 기기)
+ *  VARRAM Mealle (밀리) 스마트 펫 급식기  -  v7.1 (카카오/이메일 로그인, 서버 스케줄, 다중 기기)
  *  Hubitat 드라이버 — 비공식, 앱 통신을 관찰해 작성
  *
  *  인증    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
