@@ -8,7 +8,7 @@
 
 ## 기능
 
-- 수동 급여 (`feed(gram)`) — 1회 최대량 / 최소 간격 / 일일 누적 상한 3중 가드
+- 수동 급여 (`feed(portions)`) — 1회 최대 횟수 / 최소 간격 / 일일 누적 상한 3중 가드. **그램이 아니라 횟수(회)입니다** (아래 주의 참고)
 - 급여 스케줄 슬롯별 ON/OFF
 - 오늘 배급량·섭취량·잔여량 조회
 - 급여 실패 감지 (사료부족 등) 및 실패 횟수 집계
@@ -101,6 +101,10 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 같은 계정으로 기기마다 따로 로그인하므로, 재로그인이 다른 기기의 토큰을 무효화하는지는 확인하지 못했습니다(미검증).
 
+## 수동 급여 단위 (중요)
+
+`feed(portions)`의 값은 **그램이 아니라 횟수**입니다. `feed(1)`은 공식 앱의 "1회 급여하기"와 같고, 스케줄 1끼분(설정한 급여량에 가까운 양, 예: 8g 설정이면 실측 약 7g)이 나옵니다. `feed(8)`처럼 그램 값을 넣으면 8회분(약 58g)이 나옵니다. 가드는 `maxFeedPortions`(1회 최대 횟수, 기본 2), `dailyCapPortions`(하루 수동 상한, 기본 4), `minInterval`(최소 간격 초)로 설정합니다. 이전 버전(v6.x 이하)의 `feed(gram)`을 쓰던 룰이 있다면 반드시 횟수로 바꾸세요.
+
 ## 연결 방식
 
 벤더 서버는 기기당 WebSocket 세션을 하나만 허용합니다. 드라이버가 소켓을 계속 물고 있으면 **공식 앱에서 기기가 오프라인으로 표시됩니다.**
@@ -140,7 +144,7 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 ## 커맨드
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(portions)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 슬롯 번호는 시간순 정렬 기준 1부터입니다.
 
@@ -168,6 +172,7 @@ Kakao ID는 앱 화면에 표시되지 않으므로 로그인 요청을 캡처�
 
 | 버전 | 변경 내용 |
 |---|---|
+| v7.0 | **수동 급여 `feed`의 단위를 그램에서 횟수(회)로 변경.** 급여 요청의 `gram` 값은 그램이 아니라 "1회 급여하기"의 횟수여서, 8을 보내면 8g이 아니라 약 58g이 나왔습니다. `feed(1)` = 앱의 "1회 급여하기"(스케줄 1끼분). 설정 `maxFeedGram`/`dailyCap`(g)을 `maxFeedPortions`(기본 2회)/`dailyCapPortions`(기본 4회)로, 속성 `lastFeedGram`/`dailyFeedGram`을 `lastFeedPortions`/`dailyFeedPortions`로 교체 |
 | v6.2 | 스케줄 서버 동기화 주기를 설정으로 분리(끄기 / 1 / 6 / 12 / 24시간, 기본 6시간). 기존 30분 주기는 과해서 변경 |
 | v6.1 | `listDevices` 추가 — 계정에 연결된 `device_id` / `pet_id` 목록을 로그로 출력. 급식기가 여러 대일 때의 설정 방법을 문서화 |
 | v6.0 | 스케줄을 서버에서 자동으로 가져옴(`request_schedule_data`, 시작 시와 30분마다). `seedSchedule` 입력란 제거. `readServerSchedule` 추가. `lastFeedTime`을 급여 이력에서 갱신하고, 값이 없는 시각 속성은 `-`로 표시. 전화번호 로그인 제거(이메일만 지원). 드라이버 이름을 `VARRAM Mealle Feeder`로 통일하고 토큰 캡처 방식의 기존 드라이버를 폐지 |

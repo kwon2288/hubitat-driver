@@ -1,5 +1,5 @@
 /**
- *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v6.2 (kakao/email login, server schedule, multi-feeder)
+ *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v7.0 (kakao/email login, server schedule, multi-feeder)
  *  Hubitat driver - unofficial, based on observed app traffic
  *
  *  Auth    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
@@ -29,9 +29,9 @@ metadata {
         attribute "feedingStatus",   "string"
         attribute "leftFeed",        "number"
         attribute "foodLack",        "string"
-        attribute "lastFeedGram",    "number"
+        attribute "lastFeedPortions", "number"   // portions (1 portion = the app's "feed once") of the last manual feed
         attribute "lastFeedTime",    "string"
-        attribute "dailyFeedGram",   "number"
+        attribute "dailyFeedPortions", "number"  // manual portions fed today
         attribute "dailyGivenGram",  "number"
         attribute "dailyIntakeGram", "number"
         attribute "appGivenGram",    "number"
@@ -49,7 +49,7 @@ metadata {
         attribute "scheduleActiveGram", "number"
         attribute "scheduleSlots",      "number"
 
-        command "feed",       [[name: "gram*", type: "NUMBER", description: "토출량 (g)"]]
+        command "feed",       [[name: "portions*", type: "NUMBER", description: "Number of portions (회). 1 = the app's \"feed once\" (about one schedule dose)"]]
         command "pullHistory"
         command "dumpHistory"
         command "getSchedule"
@@ -92,8 +92,9 @@ metadata {
         input name: "holdSeconds", type: "number", title: "세션 유지 시간 (초)",
               description: "온디맨드 모드에서 마지막 메시지 후 소켓을 닫기까지", defaultValue: 15
 
-        input name: "maxFeedGram", type: "number", title: "1회 최대 토출량 (g)", defaultValue: 20
-        input name: "dailyCap",    type: "number", title: "일일 수동 급여 상한 (g)", defaultValue: 60
+        input name: "maxFeedPortions", type: "number", title: "1회 최대 급여 횟수 (회)", defaultValue: 2,
+              description: "feed 명령 1번에 허용하는 최대 횟수. 1회 = 앱의 '1회 급여하기' (스케줄 1끼분)"
+        input name: "dailyCapPortions", type: "number", title: "일일 수동 급여 상한 (회)", defaultValue: 4
         input name: "minInterval", type: "number", title: "급여 최소 간격 (초)", defaultValue: 300
 
         input name: "nominalGram", type: "number", title: "앱 환산 기준량 (g)",
@@ -778,30 +779,35 @@ def refresh() {
     queueMsg([type: "req_device_status", data: [device_id: devId(), msg_id: uid()]])
 }
 
-def feed(BigDecimal gram) {
-    if (gram == null || gram <= 0) { log.error "토출량이 올바르지 않습니다"; return }
+// NOTE: the "gram" field of req_feeding is NOT grams but the number of portions ("feed once" x N).
+// Each portion dispenses roughly one schedule dose (e.g. an 8 g setting gives ~7.2 g measured), so
+// sending 8 dispensed ~58 g. Confirmed against the feeding history on a real device.
+def feed(BigDecimal portions) {
+    if (portions == null || portions <= 0 || portions != portions.setScale(0, BigDecimal.ROUND_DOWN)) {
+        log.error "급여 횟수는 1 이상의 정수여야 합니다 (1회 = 앱의 '1회 급여하기')"; return
+    }
     rollDayIfNeeded()
 
-    def maxG = (settings.maxFeedGram ?: 20) as BigDecimal
-    if (gram > maxG) { log.error "거부: 1회 최대 ${maxG}g 초과 (${gram}g)"; return }
+    def maxP = (settings.maxFeedPortions ?: 2) as BigDecimal
+    if (portions > maxP) { log.error "거부: 1회 최대 ${maxP}회 초과 (${portions}회)"; return }
 
     def elapsed = (now() - (state.lastFeedAt ?: 0)) / 1000
     def minI = (settings.minInterval ?: 300) as Integer
     if (elapsed < minI) { log.error "거부: 마지막 급여 후 ${Math.round(elapsed)}s (최소 ${minI}s)"; return }
 
-    def today = (state.dailyGram ?: 0) as BigDecimal
-    def cap = (settings.dailyCap ?: 60) as BigDecimal
-    if (today + gram > cap) { log.error "거부: 일일 수동 상한 초과 (${today}g + ${gram}g > ${cap}g)"; return }
+    def today = (state.dailyPortions ?: 0) as BigDecimal
+    def cap = (settings.dailyCapPortions ?: 4) as BigDecimal
+    if (today + portions > cap) { log.error "거부: 일일 수동 상한 초과 (${today}회 + ${portions}회 > ${cap}회)"; return }
 
     state.lastFeedAt = now()
-    state.dailyGram = today + gram
-    sendEvent(name: "lastFeedGram", value: gram, unit: "g")
+    state.dailyPortions = today + portions
+    sendEvent(name: "lastFeedPortions", value: portions)
     sendEvent(name: "lastFeedTime", value: new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone))
-    sendEvent(name: "dailyFeedGram", value: state.dailyGram, unit: "g")
+    sendEvent(name: "dailyFeedPortions", value: state.dailyPortions)
 
     queueMsg([type: "req_feeding",
-              data: [device_id: devId(), msg_id: uid(), gram: gram]])
-    log.info "급여 요청 ${gram}g (오늘 수동 누적 ${state.dailyGram}g)"
+              data: [device_id: devId(), msg_id: uid(), gram: portions as Integer]])
+    log.info "급여 요청 ${portions}회 (오늘 수동 누적 ${state.dailyPortions}회)"
     runIn(120, "pullHistory")
 }
 
@@ -809,8 +815,8 @@ private rollDayIfNeeded() {
     def d = new Date().format("yyyy-MM-dd", location.timeZone)
     if (state.dailyDate != d) {
         state.dailyDate = d
-        state.dailyGram = 0
-        sendEvent(name: "dailyFeedGram", value: 0, unit: "g")
+        state.dailyPortions = 0
+        sendEvent(name: "dailyFeedPortions", value: 0)
     }
 }
 

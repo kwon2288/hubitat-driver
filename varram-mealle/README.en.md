@@ -8,7 +8,7 @@ The Mealle has no public API and supports neither Matter, SmartThings, HomeKit, 
 
 ## Features
 
-- Manual feeding (`feed(gram)`) with three safety guards: per-dose cap, minimum interval, daily total limit
+- Manual feeding (`feed(portions)`) with three safety guards: per-call cap, minimum interval, daily total limit. **The unit is portions, not grams** (see the note below)
 - Per-slot schedule ON/OFF
 - Today's dispensed amount, intake, and bowl remainder
 - Feed failure detection (empty hopper) with failure count
@@ -101,6 +101,10 @@ Auto-discovery only picks the first feeder linked to the account. With two or mo
 
 Each device logs in separately with the same account; whether a fresh login invalidates another device's token is unverified.
 
+## Manual feeding unit (important)
+
+The value of `feed(portions)` is a **number of portions, not grams**. `feed(1)` equals the official app's "feed once" and dispenses one scheduled meal (close to the configured dose — about 7 g measured for an 8 g setting). Passing a gram value such as `feed(8)` dispenses eight portions (about 58 g). Guards: `maxFeedPortions` (per call, default 2), `dailyCapPortions` (manual total per day, default 4) and `minInterval` (seconds). If you have rules that used `feed(gram)` on v6.x or earlier, change them to portions.
+
 ## Connection modes
 
 The vendor server appears to allow only one WebSocket session per device. If the driver holds the socket open, **the official app shows the feeder as offline.**
@@ -140,7 +144,7 @@ Both are exposed. Use `dailyIntakeGram` for true weight, or `appIntakeGram` when
 
 ## Commands
 
-`feed(gram)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
+`feed(portions)` `pullHistory` `dumpHistory` `getSchedule` `importSchedule` `exportSchedule` `readServerSchedule` `listDevices` `pushSchedule` `scheduleSlotOn(slot)` `scheduleSlotOff(slot)` `scheduleAllOn` `scheduleAllOff` `dumpDeviceInfo` `closeSession` `reconnect`
 
 Slot numbers are 1-based, ordered by time.
 
@@ -168,6 +172,7 @@ A Rule Machine notification on `feedFailCount > 0` tells you immediately when a 
 
 | Version | Changes |
 |---|---|
+| v7.0 | **Manual `feed` now takes portions instead of grams.** The `gram` field of the feeding request is the number of "feed once" portions, not grams, so sending 8 dispensed about 58 g instead of 8 g. `feed(1)` = the app's "feed once" (one scheduled meal). Preferences `maxFeedGram`/`dailyCap` (g) are replaced by `maxFeedPortions` (default 2) / `dailyCapPortions` (default 4); attributes `lastFeedGram`/`dailyFeedGram` by `lastFeedPortions`/`dailyFeedPortions` |
 | v6.2 | The schedule sync interval is now a preference (off / 1 / 6 / 12 / 24 h, default 6 h); the former 30-minute interval was excessive |
 | v6.1 | Added `listDevices` — logs the account's `device_id` / `pet_id` list. Documented setup for multiple feeders |
 | v6.0 | Schedule is now read from the server automatically (`request_schedule_data`, on start and every 30 minutes); the `seedSchedule` preference is removed. Added `readServerSchedule`. `lastFeedTime` is now updated from the feeding history and timestamp attributes without a value show `-`. Phone-number login removed (email only). Driver renamed to `VARRAM Mealle Feeder`; the legacy token-capture driver is retired |
