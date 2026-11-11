@@ -1,10 +1,10 @@
 /**
- *  VARRAM Mealle (밀리) Smart Pet Feeder  -  v7.0 (kakao/email login, server schedule, multi-feeder)
- *  Hubitat driver - unofficial, based on observed app traffic
+ *  VARRAM Mealle (밀리) 스마트 펫 급식기  -  v7.0 (카카오/이메일 로그인, 서버 스케줄, 다중 기기)
+ *  Hubitat 드라이버 — 비공식, 앱 통신을 관찰해 작성
  *
- *  Auth    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
- *  Realtime: wss://smb.varram-robot.com/?auth=<jwt>&target=<device_id>
- *  REST    : https://web.varram-robot.com/...           header  auth: <jwt>
+ *  인증    : POST https://auth.varram-robot.com/token   {user_id, refresh_token}
+ *  실시간  : wss://smb.varram-robot.com/?auth=<jwt>&target=<device_id>
+ *  REST    : https://web.varram-robot.com/...           헤더  auth: <jwt>
  *
  *  v3: WebSocket 세션 경합 대응.
  *      벤더 서버는 device 당 소켓 1개만 허용하는 것으로 보이며, 나중에 붙은 쪽이
@@ -29,9 +29,9 @@ metadata {
         attribute "feedingStatus",   "string"
         attribute "leftFeed",        "number"
         attribute "foodLack",        "string"
-        attribute "lastFeedPortions", "number"   // portions (1 portion = the app's "feed once") of the last manual feed
+        attribute "lastFeedPortions", "number"   // 마지막 수동 급여 횟수 (1회 = 앱의 '1회 급여하기')
         attribute "lastFeedTime",    "string"
-        attribute "dailyFeedPortions", "number"  // manual portions fed today
+        attribute "dailyFeedPortions", "number"  // 오늘 수동 급여 누적 횟수
         attribute "dailyGivenGram",  "number"
         attribute "dailyIntakeGram", "number"
         attribute "appGivenGram",    "number"
@@ -49,7 +49,7 @@ metadata {
         attribute "scheduleActiveGram", "number"
         attribute "scheduleSlots",      "number"
 
-        command "feed",       [[name: "portions*", type: "NUMBER", description: "Number of portions (회). 1 = the app's \"feed once\" (about one schedule dose)"]]
+        command "feed",       [[name: "portions*", type: "NUMBER", description: "급여 횟수 (회). 1회 = 앱의 \"1회 급여하기\" (스케줄 1끼분)"]]
         command "pullHistory"
         command "dumpHistory"
         command "getSchedule"
@@ -130,7 +130,7 @@ def initialize() {
     state.backoff = 5
     if (!state.refreshToken) state.refreshToken = settings.initToken
     rollDayIfNeeded()
-    // Show a placeholder until the first real value arrives, so the attributes are visible on the device page
+    // 첫 실제 값이 들어오기 전까지 자리표시자를 넣어 기기 페이지에 속성이 보이게 함
     ["lastFeedTime", "lastEatTime", "lastFailTime", "lastBowlEmptyTime"].each {
         if (device.currentValue(it) == null) sendEvent(name: it, value: "-")
     }
@@ -153,7 +153,7 @@ def initialize() {
     renewToken(true)
 }
 
-// Periodic schedule sync (picks up edits made in the official app). Default 6 h; 0 = manual getSchedule only.
+// 주기적 스케줄 동기화 (공식 앱에서 바꾼 내용 반영). 기본 6시간, 0 = getSchedule 수동 실행만
 private scheduleSyncJob() {
     int h = ((settings.scheduleSyncHours ?: "6") as Integer)
     if (h <= 0) return
@@ -504,19 +504,19 @@ private List parseSeed(String raw) {
 }
 
 def getSchedule() {
-    // The server stores the full schedule incl. per-slot on/off (request_schedule_data) and is the source of truth.
-    // If it cannot be read, the last known schedule in state is kept.
-    if (state.pendingSchedule) return   // a schedule change is still in flight
+    // 서버가 슬롯별 on/off를 포함한 전체 스케줄을 보관하며(request_schedule_data) 기준 데이터입니다.
+    // 읽지 못하면 state에 있는 마지막 스케줄을 유지합니다.
+    if (state.pendingSchedule) return   // 스케줄 변경이 아직 처리 중
     def srv = fetchServerSchedule()
     if (srv?.s_list) {
         def defWeek = [MON:true,TUE:true,WED:true,THU:true,FRI:true,SAT:true,SUN:true]
         state.schedule = [s_list: srv.s_list, weekday: srv.weekday ?: defWeek]
-        if (settings.logEnable) log.debug "schedule loaded from server (${srv.s_list.size()} slots)"
+        if (settings.logEnable) log.debug "서버에서 스케줄을 불러왔습니다 (${srv.s_list.size()}개 슬롯)"
     } else if (state.schedule?.s_list) {
-        log.warn "could not read the schedule from the server - keeping the last known schedule"
+        log.warn "서버에서 스케줄을 읽지 못해 마지막으로 알려진 스케줄을 유지합니다"
     } else {
-        log.error "could not read the schedule from the server and none is stored"
-        sendEvent(name: "scheduleSummary", value: "unknown")
+        log.error "서버에서 스케줄을 읽지 못했고 저장된 스케줄도 없습니다"
+        sendEvent(name: "scheduleSummary", value: "미확인")
         return
     }
     renderSchedule()
@@ -543,25 +543,25 @@ def exportSchedule() {
     log.info "현재 스케줄: ${JsonOutput.toJson(state.schedule)}"
 }
 
-// Logs every device/pet linked to the account so the right Device ID / Pet ID can be copied into the preferences
-// (needed when the account has more than one feeder). Only non-sensitive fields are printed.
+// 계정에 연결된 모든 기기/펫을 로그로 출력해 알맞은 Device ID / Pet ID를 설정에 복사할 수 있게 함
+// (급식기가 여러 대일 때 필요). 민감하지 않은 항목만 출력합니다.
 def listDevices() {
-    if (!state.accessToken) { log.error "not logged in yet - run initialize first"; return }
+    if (!state.accessToken) { log.error "아직 로그인되지 않았습니다 — initialize를 먼저 실행하세요"; return }
     def keys = ["device_id", "pet_id", "model_name", "device_name", "pet_name", "name", "nickname"]
     def fmt = { Map m -> keys.findAll { k -> m[k] != null }.collect { k -> "${k}=${m[k]}" }.join("  ") }
     def c = apiGet("/get/connected_pet")
     def list = c?.data?.connect_list ?: []
-    log.info "=== connected_pet: ${list.size()} item(s) ==="
+    log.info "=== connected_pet: ${list.size()}건 ==="
     list.eachWithIndex { e, i -> log.info "${i + 1}. ${fmt(e)}" }
     def dv = apiGet("/res/dev/info")
     def devs = (dv?.data instanceof List) ? dv.data : []
-    log.info "=== devices: ${devs.size()} item(s) ==="
+    log.info "=== devices: ${devs.size()}건 ==="
     devs.eachWithIndex { e, i -> log.info "${i + 1}. ${fmt(e)}" }
-    log.info "this device uses: device=${devId() ?: 'none'} pet=${petIdv() ?: 'none'}"
-    log.info "=== end - copy device_id / pet_id into this device's Device ID / Pet ID preferences ==="
+    log.info "이 기기가 사용 중: device=${devId() ?: '없음'} pet=${petIdv() ?: '없음'}"
+    log.info "=== 끝 — device_id / pet_id를 이 기기의 Device ID / Pet ID 설정에 복사하세요 ==="
 }
 
-// Returns the server-side schedule_data map ([s_list, weekday]) or null.
+// 서버의 schedule_data 맵([s_list, weekday])을 반환하거나 null
 private fetchServerSchedule() {
     if (!devId()) return null
     def r = apiPost("/get/mobile/info/feeder/${devId()}",
@@ -574,22 +574,22 @@ private fetchServerSchedule() {
     return null
 }
 
-// Read-only probe: the VARRAM app loads its schedule with request_schedule_data on this endpoint.
-// Logs what the server returns; does NOT change the driver's schedule or the feeder.
+// 조회 전용: VARRAM 앱이 이 엔드포인트에서 request_schedule_data로 스케줄을 불러옵니다.
+// 서버 응답을 로그로 남기며 드라이버 스케줄이나 급식기는 변경하지 않습니다.
 def readServerSchedule() {
-    if (!devId()) { log.error "Device ID not found"; return }
+    if (!devId()) { log.error "Device ID를 찾을 수 없습니다"; return }
     def r = apiPost("/get/mobile/info/feeder/${devId()}",
                     [request_update_info: true, request_schedule_data: true, request_adjustment: true])
-    if (r == null) { log.error "server schedule request failed"; return }
+    if (r == null) { log.error "서버 스케줄 요청 실패"; return }
     def d = r?.data
-    log.info "server response keys: ${(d instanceof Map) ? d.keySet() : r}"
+    log.info "서버 응답 키: ${(d instanceof Map) ? d.keySet() : r}"
     def sd = d?.schedule_data
-    if (sd == null) { log.warn "no schedule_data in response"; return }
-    log.info "server schedule_data: ${JsonOutput.toJson(sd).take(1500)}"
+    if (sd == null) { log.warn "응답에 schedule_data가 없습니다"; return }
+    log.info "서버 schedule_data: ${JsonOutput.toJson(sd).take(1500)}"
     def sl = (sd instanceof Map) ? sd.s_list : null
     if (sl) {
         def hasOn = sl.every { it.containsKey("on") }
-        log.info "server s_list: ${sl.size()} slots, per-slot on/off present: ${hasOn}"
+        log.info "서버 s_list: ${sl.size()}개 슬롯, 슬롯별 on/off 포함 여부: ${hasOn}"
     }
 }
 
@@ -779,9 +779,9 @@ def refresh() {
     queueMsg([type: "req_device_status", data: [device_id: devId(), msg_id: uid()]])
 }
 
-// NOTE: the "gram" field of req_feeding is NOT grams but the number of portions ("feed once" x N).
-// Each portion dispenses roughly one schedule dose (e.g. an 8 g setting gives ~7.2 g measured), so
-// sending 8 dispensed ~58 g. Confirmed against the feeding history on a real device.
+// 참고: req_feeding의 "gram" 필드는 그램이 아니라 급여 횟수("1회 급여하기" × N)입니다.
+// 1회는 대략 스케줄 1끼분이 나옵니다 (예: 8g 설정 → 실측 약 7.2g). 그래서 8을 보내면
+// 약 58g이 나왔습니다. 실제 기기의 급여 이력으로 확인했습니다.
 def feed(BigDecimal portions) {
     if (portions == null || portions <= 0 || portions != portions.setScale(0, BigDecimal.ROUND_DOWN)) {
         log.error "급여 횟수는 1 이상의 정수여야 합니다 (1회 = 앱의 '1회 급여하기')"; return
