@@ -41,6 +41,10 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.5
+ *    - FIX (ZG-210Z): detectionThreshold in Current States could stay at an old value when the
+ *      preference was changed without updated() running (e.g. saved from another tool). It is now
+ *      re-synced from the setting on every device report as well as on Save Preferences
  *  Version: 1.3.4
  *    - FIX (ZG-210Z): presence could never clear with a small detection threshold. The fixed
  *      ±20 hysteresis made "stay present" true for any pressure above (threshold - 20), so with
@@ -72,7 +76,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.4"
+@Field static final String VERSION = "1.3.5"
 
 // ZG-210Z driver-side detection: hysteresis so values hovering at the threshold do not flicker.
 // Capped at half the threshold, so a small threshold can still clear (see hysteresisFor()).
@@ -209,12 +213,7 @@ def updated() {
         queueSetting(104, settings.humCalPref, "humidityCalibration", -30, 30, 1)
         flushPending(true)
 
-        // Mirror the configured threshold into Current States (cleared when blank = device judgement)
-        if (settings.threshold != null) {
-            emit("detectionThreshold", settings.threshold as int)
-        } else {
-            device.deleteCurrentState("detectionThreshold")
-        }
+        syncThresholdAttribute()
 
         // Apply a new threshold right away instead of waiting for the next report
         def cp = device.currentValue("currentPressure")
@@ -411,7 +410,20 @@ private void processDpSeq9(int dp, int type, long v) {
 }
 
 // _TZE200_ihizzpzn (ZG-210Z)
+// Mirror the configured threshold into Current States (cleared when blank = device judgement).
+// Called on Save Preferences and on every report, so it never lags the setting.
+private void syncThresholdAttribute() {
+    def shown = device.currentValue("detectionThreshold")
+    if (settings.threshold != null) {
+        int th = settings.threshold as int
+        if (shown == null || (shown as int) != th) emit("detectionThreshold", th)
+    } else if (shown != null) {
+        device.deleteCurrentState("detectionThreshold")
+    }
+}
+
 private void processDpZg210z(int dp, int type, long v) {
+    syncThresholdAttribute()
     switch (dp) {
         case 1:
             String state = PRESSURE_STATE[(int) v] ?: "unknown(${v})"
