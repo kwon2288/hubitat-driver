@@ -53,7 +53,7 @@ tuya-bed-presence/
 | Sampling interval | 5–720분 (5분 단위) | 샘플링 주기. 5의 배수가 아니면 가장 가까운 값으로 보정 (seq9cm6u) |
 | Delay before reporting 'not present' | 0–3600초 | 압력이 사라진 뒤 비재실로 보고하기까지의 지연 (두 기종 공통, ZG-210Z 미설정 시 5초) |
 | Delay before reporting 'present' | 0–3600초 | 압력이 감지된 뒤 재실로 보고하기까지의 지연 (seq9cm6u) |
-| Detection threshold / 감지 기준값 | 숫자 | `currentPressure`가 이 값 이상이면 재실 (ZG-210Z). 비워 두면 기기 자체 판정(`pressure_state`) 사용. 고정 히스테리시스 ±20 |
+| Detection threshold / 감지 기준값 | 숫자 | `currentPressure`가 이 값 이상이면 재실 (ZG-210Z). 비워 두면 기기 자체 판정(`pressure_state`) 사용. 기준값보다 조금 낮아질 때(기준값의 절반, 최대 20)까지는 재실 유지 |
 | Temperature calibration | -2.0–2.0 °C | 온도 보정 (ZG-210Z) |
 | Humidity calibration | -30–30 % | 습도 보정 (ZG-210Z) |
 | Mirror presence to motion | on / off | `motion` 속성 동시 보고 여부 |
@@ -62,7 +62,7 @@ tuya-bed-presence/
 
 ### ZG-210Z 전용 동작
 
-- **재실 판단**: 감지 기준값을 지정하면 드라이버가 `currentPressure >= 기준값`일 때 재실로 판단합니다(히스테리시스 ±20 고정). 비재실 전환은 "비재실 지연"만큼 기다리며, 그동안 압력이 돌아오면 취소됩니다. 기준값을 비우면 기기 자체 판정(DP 1)을 씁니다. 펌웨어 임계값(DP 105)은 실제 하중을 잘 따라가지 못해 사용하지 않습니다.
+- **재실 판단**: 감지 기준값을 지정하면 드라이버가 `currentPressure >= 기준값`일 때 재실로 판단합니다(경계값에서 깜빡이지 않도록 `기준값 - min(20, 기준값÷2)` 아래로 내려가야 비재실 전환 시작). 비재실 전환은 "비재실 지연"만큼 기다리며, 그동안 압력이 돌아오면 취소됩니다. 기준값을 비우면 기기 자체 판정(DP 1)을 씁니다. 펌웨어 임계값(DP 105)은 실제 하중을 잘 따라가지 못해 사용하지 않습니다.
 - **보류 설정 큐**: 잠든 기기는 쓰기를 놓치는 경우가 많아서, 변경한 지연·보정 설정은 기기가 같은 값을 다시 보고(에코)할 때까지 보류했다가 기기가 보고할 때마다 재전송합니다(20초 간격 제한, 최대 15회).
 - **이전 버전 정리**: 설정 저장 시 1.2.0의 속성(`pressureIntensity`, `sedentaryReminder`, `pendingSettings`)과 설정을 지웁니다.
 

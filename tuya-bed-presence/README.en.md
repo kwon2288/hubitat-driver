@@ -53,7 +53,7 @@ tuya-bed-presence/
 | Sampling interval | 5–720 min (step 5) | Sampling interval; non-multiples of 5 are rounded (seq9cm6u) |
 | Delay before reporting 'not present' | 0–3600 s | Delay after pressure is released before reporting absence (both models; ZG-210Z defaults to 5 s when unset) |
 | Delay before reporting 'present' | 0–3600 s | Delay after pressure is detected before reporting presence (seq9cm6u) |
-| Detection threshold / 감지 기준값 | number | Present when `currentPressure` is at or above this value (ZG-210Z). Leave blank to use the device's own judgement (`pressure_state`). Fixed hysteresis ±20 |
+| Detection threshold / 감지 기준값 | number | Present when `currentPressure` is at or above this value (ZG-210Z). Leave blank to use the device's own judgement (`pressure_state`). Stays present until pressure drops below threshold − min(20, threshold ÷ 2) |
 | Temperature calibration | -2.0–2.0 °C | (ZG-210Z) |
 | Humidity calibration | -30–30 % | (ZG-210Z) |
 | Mirror presence to motion | on / off | Whether to also report the `motion` attribute |
@@ -62,7 +62,7 @@ A setting is only sent when it differs from the value the device last reported.
 
 ### ZG-210Z specifics
 
-- **Presence**: with a detection threshold set, the driver reports present when `currentPressure >= threshold` (fixed ±20 hysteresis). Going back to not present waits for the "not present" delay and is cancelled if pressure returns. Leave the threshold blank to use the device's own judgement (DP 1). The firmware threshold (DP 105) does not track the real load well, so it is not used.
+- **Presence**: with a detection threshold set, the driver reports present when `currentPressure >= threshold` (to avoid flicker, clearing starts only below `threshold − min(20, threshold ÷ 2)`). Going back to not present waits for the "not present" delay and is cancelled if pressure returns. Leave the threshold blank to use the device's own judgement (DP 1). The firmware threshold (DP 105) does not track the real load well, so it is not used.
 - **Pending write queue**: a sleepy device often drops a write sent while it is asleep, so delay/calibration changes are kept as pending until the device echoes the value, and re-sent every time the device reports (throttled to once per 20 s, at most 15 attempts).
 - **Cleanup**: saving preferences removes the 1.2.0 attributes (`pressureIntensity`, `sedentaryReminder`, `pendingSettings`) and settings.
 

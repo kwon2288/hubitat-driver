@@ -41,6 +41,11 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.4
+ *    - FIX (ZG-210Z): presence could never clear with a small detection threshold. The fixed
+ *      ±20 hysteresis made "stay present" true for any pressure above (threshold - 20), so with
+ *      a threshold below 20 even 0 counted as loaded. Now: present at currentPressure >= threshold,
+ *      cleared below (threshold - H) where H = min(20, threshold / 2)
  *  Version: 1.3.3
  *    - NEW (ZG-210Z): detectionThreshold attribute shows the configured detection threshold in Current States
  *  Version: 1.3.2
@@ -67,9 +72,10 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.3"
+@Field static final String VERSION = "1.3.4"
 
-// ZG-210Z driver-side detection: fixed hysteresis so values hovering at the threshold do not flicker
+// ZG-210Z driver-side detection: hysteresis so values hovering at the threshold do not flicker.
+// Capped at half the threshold, so a small threshold can still clear (see hysteresisFor()).
 @Field static final int HYSTERESIS = 20
 
 @Field static final String MFR_SEQ9 = "_TZE200_seq9cm6u"
@@ -444,13 +450,21 @@ private void processDpZg210z(int dp, int type, long v) {
     }
 }
 
-/* ZG-210Z driver-side detection: fixed hysteresis, absence honours the "not present" delay */
+/* ZG-210Z driver-side detection: hysteresis below the threshold, absence honours the "not present" delay */
+private static int hysteresisFor(int th) {
+    return Math.max(0, Math.min(HYSTERESIS, (int) (th / 2)))
+}
+
+// Present at cp >= th; once present, stays present until cp drops below (th - H)
+private static boolean isLoaded(int cp, int th, boolean present) {
+    return present ? (cp >= th - hysteresisFor(th)) : (cp >= th)
+}
+
 private void evaluatePressure(int cp) {
     int th = settings.threshold as int
     boolean present = device.currentValue("presence") == "present"
-    // Hysteresis: need th+H to become present, drop below th-H to start leaving
-    boolean loaded = present ? (cp > th - HYSTERESIS) : (cp >= th + HYSTERESIS)
-    logDebug "currentPressure ${cp} vs threshold ${th} (±${HYSTERESIS}) -> ${loaded ? 'loaded' : 'empty'}"
+    boolean loaded = isLoaded(cp, th, present)
+    logDebug "currentPressure ${cp} vs threshold ${th} (clear below ${th - hysteresisFor(th)}) -> ${loaded ? 'loaded' : 'empty'}"
 
     if (loaded) {
         unschedule("goVacant")
@@ -472,7 +486,7 @@ def goVacant() {
     state.vacantPending = false
     // Re-check: pressure may have come back during the delay
     def cp = device.currentValue("currentPressure")
-    if (settings.threshold != null && cp != null && (cp as int) > (settings.threshold as int) - HYSTERESIS) return
+    if (settings.threshold != null && cp != null && isLoaded(cp as int, settings.threshold as int, true)) return
     setPresence(false)
 }
 
