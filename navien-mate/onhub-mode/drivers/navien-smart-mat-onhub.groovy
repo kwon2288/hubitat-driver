@@ -1,5 +1,5 @@
 /**
- * Navien Smart 숙면매트 — 허브 단독 버전 (v3)
+ * Navien Smart 숙면매트 — 허브 단독 버전 (v4: 구역별 온도조절기 자식 기기 추가)
  *
  * Docker 브리지 없이 이 드라이버가 AWS IoT에 wss:// MQTT로 직접 접속해 실시간
  * 상태를 구독한다. 이건 Hubitat 공식 문서에 없는 동작(wss:// 지원)에 기대고
@@ -46,6 +46,9 @@ metadata {
     }
 
     preferences {
+        input name: "zoneThermostats", type: "bool", defaultValue: true,
+              title: "구역별 온도조절기 기기 만들기 (HomeKit 등에서 왼쪽/오른쪽 따로 조절)",
+              description: "꺼도 이미 만든 기기는 지워지지 않습니다."
         input name: "logEnable", type: "bool", title: "디버그 로그 남기기", defaultValue: true
     }
 }
@@ -58,6 +61,7 @@ def updated() { initialize() }
 def initialize() {
     unschedule()
     refreshRegistry()
+    ensureZoneDevices()
     runIn(2, "connect")
     runEvery5Minutes("healthCheck")
 }
@@ -255,7 +259,71 @@ private void handleReportedState(Map reported) {
         if (lvl == null) return
         sendEvent(name: "${zone}_level", value: lvl)
         sendEvent(name: "${zone}_levelLabel", value: levelLabel(lvl))
+        syncZoneDevice(zone as String, lvl)
     }
+}
+
+// ── 구역별 온도조절기 자식 기기 (HomeKit 에서 왼쪽/오른쪽을 따로 조절하기 위함) ──
+
+private String zoneDni(String zone) { return "${device.deviceNetworkId}-${zone}" }
+
+private String zoneName(String zone) {
+    switch (zone) {
+        case "left": return "왼쪽"
+        case "right": return "오른쪽"
+        default: return "전체"
+    }
+}
+
+private void ensureZoneDevices() {
+    // 설정이 한 번도 저장되지 않은 기존 기기는 null 이므로 false 로 명시한 경우만 끈다.
+    if (settings?.zoneThermostats == false) return
+    def dev = state.device
+    if (!dev?.zones) return
+
+    (dev.zones as List).each { zone ->
+        String dni = zoneDni(zone as String)
+        def child = getChildDevice(dni)
+        if (!child) {
+            try {
+                child = addChildDevice(
+                    "kwon2288", "Navien Smart 숙면매트 (구역 온도조절기)", dni,
+                    [name: "Navien Smart 숙면매트 구역", label: "${device.displayName} ${zoneName(zone as String)}",
+                     isComponent: true]
+                )
+                log.info "구역 온도조절기 생성됨: ${child.displayName}"
+            } catch (Exception e) {
+                log.warn "구역 온도조절기 생성 실패 (${zone}): ${e.message} — " +
+                         "'Navien Smart 숙면매트 (구역 온도조절기)' 드라이버가 설치돼 있는지 확인하세요."
+                return
+            }
+        }
+        child.updateDataValue("zone", zone as String)
+        def lvl = device.currentValue("${zone}_level")
+        if (lvl != null) {
+            try { child.applyLevel(lvl) } catch (Exception ignored) { }
+        }
+    }
+}
+
+private void syncZoneDevice(String zone, Integer lvl) {
+    def child = getChildDevice(zoneDni(zone))
+    if (!child) return
+    try {
+        child.applyLevel(lvl)
+    } catch (Exception e) {
+        if (logEnable) log.debug "구역 온도조절기(${zone}) 동기화 실패: ${e.message}"
+    }
+}
+
+// 자식(구역 온도조절기)이 호출하는 메서드
+def componentSetLevel(String zone, level) {
+    setHeatLevel(zone, level as BigDecimal)
+}
+
+Map zoneLevelRange() {
+    def dev = state.device
+    return [min: (dev?.rangeMin ?: 1) as int, max: (dev?.rangeMax ?: 8) as int]
 }
 
 // ── 전원/단계 제어 (REST — 부모 앱에 위임, MQTT 연결 여부와 무관하게 동작) ─
@@ -294,6 +362,7 @@ def setHeatLevel(String zone, BigDecimal level) {
 
     sendEvent(name: "${zone}_level", value: lvl)
     sendEvent(name: "${zone}_levelLabel", value: levelLabel(lvl))
+    syncZoneDevice(zone, lvl)
     if (zone == "single") {
         sendEvent(name: "switch", value: enabled ? "on" : "off")
     }

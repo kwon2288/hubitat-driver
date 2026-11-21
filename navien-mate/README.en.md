@@ -227,7 +227,10 @@ state — though `wss://` support is undocumented on Hubitat's part, so it may
 vary by hub firmware build. If it doesn't work, REST control still does.
 
 1. **Drivers Code** → **New Driver** → paste
-   `onhub-mode/drivers/navien-smart-mat-onhub.groovy` → **Save**.
+   `onhub-mode/drivers/navien-smart-mat-onhub.groovy` → **Save**. Then do the
+   same for `onhub-mode/drivers/navien-smart-mat-zone.groovy` (the component
+   driver for per-zone thermostats) — without it the zone thermostats aren't
+   created (a warning is logged).
 2. **Apps Code** → **New App** → paste
    `onhub-mode/apps/navien-mate-connector.groovy` → **Save**.
 3. **Apps** → **Add User App** → "Navien Smart 숙면매트 (Connector)".
@@ -282,6 +285,35 @@ expose the same capabilities, attributes, and commands.
   update to the **actual device state** whenever an MQTT message arrives —
   not just the last command sent.
 - `refresh()` — re-fetches device registry info.
+
+### Controlling left/right separately from HomeKit (on-hub path)
+
+Exporting only the mat device to HomeKit shows a plain power switch. The
+on-hub driver therefore creates a **thermostat child device per zone**
+(`… 왼쪽` / left, `… 오른쪽` / right). Select those children in the HomeKit
+Integration app (or Maker API / Homebridge) to control each zone on its own.
+
+The mat has no real temperature reading, just levels 1–8, so each level is
+mapped to a **made-up temperature**:
+
+| Level | 0 (standby) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| HomeKit setpoint | mode `off` | 21°C | 22°C | 23°C | 24°C | 25°C | 26°C | 27°C | 28°C |
+
+- Setpoint = **20 + level**. The "current temperature" is reported equal to the
+  setpoint (there is no sensor), so the Home app always shows it as reached.
+- Only `off` / `heat` modes exist. Switching to `heat` resumes the zone's last
+  level (3 if none).
+- Whatever temperature HomeKit sends is **snapped to the nearest level** and
+  clamped to levels 1–8 (25.4°C → level 5, 35°C → level 8). HomeKit's range is
+  10–38°C, so dragging outside the mapped range snaps back to the nearest
+  level's temperature.
+- To turn this off, untick "구역별 온도조절기 기기 만들기" (create per-zone
+  thermostats) in the driver preferences — already-created children are not
+  removed; delete them by hand.
+- A °F hub is handled by converting internally.
+- This is an on-hub-path feature only, and how it actually looks and behaves
+  in the HomeKit Integration app / Siri hasn't been thoroughly verified yet.
 
 ## Limitations
 
