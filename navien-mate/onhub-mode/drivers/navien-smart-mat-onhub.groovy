@@ -248,7 +248,9 @@ private void handleReportedState(Map reported) {
 
     Integer mode = reported?.operationMode as Integer
     if (mode != null) {
-        sendEvent(name: "switch", value: (mode == MODE_POWER_OFF) ? "off" : "on")
+        boolean powerOn = (mode != MODE_POWER_OFF)
+        state.power = powerOn
+        sendEvent(name: "switch", value: powerOn ? "on" : "off")
     }
 
     def heater = reported?.heater ?: [:]
@@ -257,10 +259,28 @@ private void handleReportedState(Map reported) {
         if (z == null) return
         Integer lvl = z?.level?.set as Integer
         if (lvl == null) return
+        // 방금 이 구역에 명령을 보냈다면, 그 직후 도착하는 보고는 명령 전의 낡은 상태일 수
+        // 있어서 무시한다 (슬라이더를 끄는 도중 값이 튀는 것 방지). 몇 초 뒤 다시 조회한다.
+        if (zoneCommandRecent(zone as String)) {
+            if (logEnable) log.debug "${zone} 구역: 명령 직후 보고 무시 (level=${lvl})"
+            return
+        }
         sendEvent(name: "${zone}_level", value: lvl)
         sendEvent(name: "${zone}_levelLabel", value: levelLabel(lvl))
-        syncZoneDevice(zone as String, lvl)
     }
+    syncAllZoneDevices()
+}
+
+private boolean zoneCommandRecent(String zone) {
+    Long at = (state.zoneCmdAt instanceof Map) ? (state.zoneCmdAt[zone] as Long) : null
+    return at != null && (now() - at) < 4000L
+}
+
+private void markZoneCommand(String zone) {
+    Map m = (state.zoneCmdAt instanceof Map) ? (state.zoneCmdAt as Map) : [:]
+    m[zone] = now()
+    state.zoneCmdAt = m
+    runIn(5, "requestInitialState")   // 명령이 반영된 최종 상태를 다시 받아온다
 }
 
 // ── 구역별 슬라이더 자식 기기 (HomeKit 에서 왼쪽/오른쪽을 따로 조절하기 위함) ──
@@ -301,8 +321,16 @@ private void ensureZoneDevices() {
         child.updateDataValue("zone", zone as String)
         def lvl = device.currentValue("${zone}_level")
         if (lvl != null) {
-            try { child.applyLevel(lvl) } catch (Exception ignored) { }
+            try { child.applyLevel(lvl as Integer, state.power != false) } catch (Exception ignored) { }
         }
+    }
+}
+
+private void syncAllZoneDevices(String exceptZone = null) {
+    (state.device?.zones as List)?.each { zone ->
+        if (zone == exceptZone) return
+        def lvl = device.currentValue("${zone}_level")
+        if (lvl != null) syncZoneDevice(zone as String, lvl as Integer)
     }
 }
 
@@ -310,7 +338,8 @@ private void syncZoneDevice(String zone, Integer lvl) {
     def child = getChildDevice(zoneDni(zone))
     if (!child) return
     try {
-        child.applyLevel(lvl)
+        // 매트 전체 전원이 꺼져 있으면 구역도 꺼진 것으로 보인다.
+        child.applyLevel(lvl, state.power != false)
     } catch (Exception e) {
         if (logEnable) log.debug "구역 슬라이더(${zone}) 동기화 실패: ${e.message}"
     }
@@ -330,12 +359,16 @@ Map zoneLevelRange() {
 
 def on() {
     sendControl([operationMode: MODE_HEAT])
+    state.power = true
     sendEvent(name: "switch", value: "on")
+    syncAllZoneDevices()
 }
 
 def off() {
     sendControl([operationMode: MODE_POWER_OFF])
+    state.power = false
     sendEvent(name: "switch", value: "off")
+    syncAllZoneDevices()
 }
 
 def setHeatLevel(String zone, BigDecimal level) {
@@ -358,11 +391,21 @@ def setHeatLevel(String zone, BigDecimal level) {
     }
 
     boolean enabled = lvl > LEVEL_STANDBY
+    // 매트 전원이 꺼진 상태에서 구역을 켜면 전원부터 켠다 (안 그러면 단계만 바뀌고 가열이 안 됨).
+    boolean powerChanged = false
+    if (enabled && state.power == false) {
+        sendControl([operationMode: MODE_HEAT])
+        state.power = true
+        sendEvent(name: "switch", value: "on")
+        powerChanged = true
+    }
     sendControl([heater: [(zone): [enable: enabled, level: [set: lvl]]]])
+    markZoneCommand(zone)
 
     sendEvent(name: "${zone}_level", value: lvl)
     sendEvent(name: "${zone}_levelLabel", value: levelLabel(lvl))
     syncZoneDevice(zone, lvl)
+    if (powerChanged) syncAllZoneDevices(zone)
     if (zone == "single") {
         sendEvent(name: "switch", value: enabled ? "on" : "off")
     }

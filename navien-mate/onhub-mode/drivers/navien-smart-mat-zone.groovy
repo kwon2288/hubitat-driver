@@ -94,14 +94,15 @@ private int lastLevel() {
 
 // ── 부모가 호출: 실제 단계가 바뀌었을 때 반영 (MQTT 상태·제어 결과) ──────
 
-def applyLevel(lvl) {
+// power: 매트 전체 전원 — 꺼져 있으면 단계가 남아 있어도 이 구역은 "꺼짐"으로 보인다.
+def applyLevel(lvl, power = true) {
     cleanupOldAttributes()
     int level = (lvl ?: 0) as int
     if (level > 0) state.lastLevel = level
 
     sendEvent(name: "heatLevel", value: level)
     sendEvent(name: "heatLevelLabel", value: level == 0 ? "운전 대기" : "${level}단계")
-    sendEvent(name: "switch", value: level > 0 ? "on" : "off")
+    sendEvent(name: "switch", value: (level > 0 && power != false) ? "on" : "off")
     sendEvent(name: "level", value: levelToPercent(level), unit: "%")
 }
 
@@ -129,6 +130,7 @@ def setHeatLevel(level) {
         log.warn "부모 드라이버 제어 요청 실패: ${e.message}"
         return
     }
-    // 부모가 REST 전송 후 applyLevel 로 다시 알려주지만, 반응을 빠르게 하려고 먼저 반영한다.
-    applyLevel(lvl)
+    // 부모가 REST 전송 후 applyLevel 로 다시 알려준다 (전원 상태까지 반영해서).
+    // 부모 호출이 실패하면 위에서 return 하므로 여기 도달하면 명령은 전송된 것이다.
+    applyLevel(lvl, lvl > 0 ? true : (parent?.currentValue("switch") != "off"))
 }
