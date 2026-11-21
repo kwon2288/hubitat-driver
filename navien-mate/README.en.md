@@ -330,6 +330,22 @@ expose the same capabilities, attributes, and commands.
   `connection` issue below, but the real problem was that credential refresh
   itself kept failing, so there was never a valid credential to connect to
   AWS IoT with in the first place.)
+- **The App keeps getting logged out ("세션이 끊겼습니다" / 🚨 banner)** — the
+  Navien account allows only one session, so **opening the Navien phone app,
+  or a bridge / second hub logging in with the same account, kicks the App's
+  session.** When the App detects this (HTTP 401/403, code 404/407) it logs
+  in again automatically — but that re-login kicks the *other* client in turn,
+  so the two can end up fighting over the session. The App page shows the
+  last login time, reason and cumulative re-login count; a 🚨 warning appears
+  when there are 3+ re-logins within 10 minutes.
+  - **The reliable fix: create a separate Navien account for the hub** (share
+    the device from the phone-app account, or register it under the new
+    account) and use that one in the App.
+  - Transient network errors and server 5xx responses are retried without
+    re-logging in (to avoid needlessly kicking other sessions). If login
+    itself fails it retries at 30s → 1m → 2m → 5m → 10m. Wrong-password errors
+    are deliberately *not* retried automatically, to avoid locking the account
+    (5 failures) — fix the password and press "로그인 및 기기 검색".
 - **`connection` attribute stays `disconnected`** (and the above isn't the
   cause) — check whether `signHostWithPort` flips between attempts in the
   driver log. Whether Hubitat's built-in MQTT client appends the port to the

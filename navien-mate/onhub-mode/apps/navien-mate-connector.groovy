@@ -60,8 +60,22 @@ def mainPage() {
         }
         if (state.homeSeq) {
             section("상태") {
-                paragraph "✅ 로그인됨 (userSeq=${state.userSeq}, homeSeq=${state.homeSeq})"
+                if (state.accessToken) {
+                    paragraph "✅ 로그인됨 (userSeq=${state.userSeq}, homeSeq=${state.homeSeq})"
+                } else if (state.loginFatal) {
+                    paragraph "⛔ 로그인 중단 — 아이디/비밀번호 확인 후 '로그인 및 기기 검색'을 눌러주세요."
+                } else {
+                    paragraph "⚠️ 세션이 끊겼습니다 — 자동으로 재로그인을 시도하는 중입니다."
+                }
                 paragraph "검색된 매트: ${state.devices?.size() ?: 0}대"
+                if (state.lastLoginAt) {
+                    paragraph "마지막 로그인: ${new Date(state.lastLoginAt as Long).format('yyyy-MM-dd HH:mm:ss', location.timeZone)} " +
+                        "(사유: ${state.lastLoginReason}) / 누적 재로그인 ${state.reloginCount ?: 0}회"
+                }
+                if (state.conflictSuspected) {
+                    paragraph "🚨 짧은 시간에 재로그인이 반복되고 있습니다. 같은 나비엔 계정을 폰 앱·Docker 브리지·다른 허브가 " +
+                        "함께 쓰면 서로 세션을 끊습니다. 허브 전용 계정을 따로 만드는 것을 권장합니다."
+                }
             }
         }
         section("옵션") {
@@ -77,8 +91,9 @@ def updated() { initialize() }
 
 def initialize() {
     unschedule()
+    state.refreshFail = 0
     if (username && password) {
-        login()
+        login("init")
         if (state.accessToken) {
             discoverDevices()
             createChildDevices()
@@ -92,7 +107,7 @@ def initialize() {
 def appButtonHandler(String btn) {
     if (btn == "doLogin") {
         state.loginError = null
-        login()
+        login("manual")
         if (state.accessToken) {
             discoverDevices()
             createChildDevices()
@@ -145,23 +160,58 @@ Map sendControl(String deviceId, Map desired) {
 
 def refreshAwsCredentials() {
     if (!state.accessToken) {
-        login()
-        if (!state.accessToken) return
+        if (state.loginFatal) return          // 비밀번호 오류 등 — 재시도해도 소용없음
+        if (!login("refresh-no-token")) return
+        notifyChildrenCredentialsRefreshed()
+        return
     }
     try {
         Map data = securedSignIn(state.accessToken, state.loginId, state.accountSeq)
         setAws(data.authInfo ?: [:])
+        state.refreshFail = 0
         if (logEnable) log.debug "AWS 자격증명 갱신 완료"
         notifyChildrenCredentialsRefreshed()
     } catch (Exception e) {
-        // 토큰이 있어도 서버가 더 이상 안 받아줄 수 있다(만료·세션 뺏김 등).
-        // 그런 경우를 대비해 갱신 실패 시 전체 재로그인으로 폴백한다.
-        log.warn "AWS 자격증명 갱신 실패(${e.message}) — 재로그인으로 폴백"
-        login()
-        if (state.accessToken) {
-            notifyChildrenCredentialsRefreshed()
+        // 재로그인은 같은 계정의 다른 세션(폰 앱·브리지 등)을 끊어버리므로,
+        // 세션이 정말 무효일 때(401/403/404/407)만 즉시 재로그인한다.
+        // 네트워크 순단·서버 5xx 같은 일시 오류는 60초 뒤 재시도하고,
+        // 3회 연속 실패하면 그때 재로그인한다.
+        boolean authFail = isAuthFailure(e)
+        state.refreshFail = ((state.refreshFail ?: 0) as int) + 1
+        if (authFail || state.refreshFail >= 3) {
+            String why = authFail ? "session-invalid" : "refresh-failed-x${state.refreshFail}"
+            log.warn "AWS 자격증명 갱신 실패(${e.message}) — 재로그인 [${why}]"
+            if (login(why)) notifyChildrenCredentialsRefreshed()
+        } else {
+            log.warn "AWS 자격증명 갱신 일시 실패(${state.refreshFail}/3): ${e.message} — 60초 후 재시도"
+            runIn(60, "refreshAwsCredentials")
         }
     }
+}
+
+// 로그인 실패 후 백오프 재시도 (30s → 60s → 2m → 5m → 10m 고정)
+def retryLogin() {
+    if (state.accessToken || state.loginFatal) return
+    if (login("retry")) {
+        notifyChildrenCredentialsRefreshed()
+    }
+}
+
+private boolean isAuthFailure(Exception e) {
+    Integer http = httpStatusOf(e)
+    if (http in [401, 403]) return true
+    String msg = e?.message ?: ""
+    return msg.contains("code=${CODE_NOT_AUTHORIZED})") || msg.contains("code=${CODE_TOKEN_EXPIRED})")
+}
+
+private Integer httpStatusOf(Exception e) {
+    try { def s = e?.response?.status; if (s != null) return s as Integer } catch (ignored) { }
+    try { def s = e?.statusCode; if (s != null) return s as Integer } catch (ignored) { }
+    try {
+        def m = ((e?.message ?: "") =~ /status code: (\d{3})/)
+        if (m.find()) return m.group(1) as Integer
+    } catch (ignored) { }
+    return null
 }
 
 private void notifyChildrenCredentialsRefreshed() {
@@ -256,7 +306,19 @@ def createChildDevices() {
 
 // ── 인증 (실기기로 검증된 GET→POST→GET 쿠키 흐름) ─────────────────────────
 
-def login() {
+/**
+ * @param reason 로그인 사유 (init/manual/retry/session-invalid/control 등) — 상태 화면과 로그에 남는다.
+ * @return 성공 여부
+ */
+boolean login(String reason = "unknown") {
+    // 방금 막 로그인했다면(제어와 갱신이 동시에 실패한 경우 등) 중복 로그인하지 않는다.
+    // 로그인 한 번마다 같은 계정의 다른 세션이 끊기므로 불필요한 로그인은 피한다.
+    if (reason != "manual" && reason != "init" && state.accessToken && state.lastLoginAt &&
+            (now() - (state.lastLoginAt as Long)) < 15000L) {
+        if (logEnable) log.debug "방금 로그인함 — 중복 로그인 생략 (사유: ${reason})"
+        return true
+    }
+    state.loginFatal = false
     try {
         Map loginResp = formLogin()
         Map signIn = securedSignIn(loginResp.accessToken, loginResp.loginId, loginResp.userSeq)
@@ -272,12 +334,55 @@ def login() {
         setAws(signIn?.authInfo ?: [:])
 
         state.loginError = null
-        if (logEnable) log.debug "로그인 성공 userSeq=${state.userSeq} homeSeq=${state.homeSeq}"
+        state.loginRetry = 0
+        state.refreshFail = 0
+        unschedule("retryLogin")
+        recordLogin(reason)
+        if (logEnable) log.debug "로그인 성공 userSeq=${state.userSeq} homeSeq=${state.homeSeq} (사유: ${reason})"
+        return true
     } catch (Exception e) {
         state.accessToken = null
         state.loginError = e.message
-        log.warn "로그인 실패: ${e.message}"
+        log.warn "로그인 실패(사유: ${reason}): ${e.message}"
+        scheduleLoginRetry()
+        return false
     }
+}
+
+private void recordLogin(String reason) {
+    long t = now()
+    state.lastLoginAt = t
+    state.lastLoginReason = reason
+    if (reason in ["init", "manual"]) return
+
+    // 자동 재로그인만 센다. 10분 안에 3번 이상이면 다른 곳과 세션을 뺏고 뺏기는 상태로 본다.
+    state.reloginCount = ((state.reloginCount ?: 0) as int) + 1
+    List times = ((state.reloginTimes ?: []) as List).findAll { (t - (it as Long)) < 600000L }
+    times << t
+    state.reloginTimes = times
+    if (times.size() >= 3) {
+        if (!state.conflictSuspected) {
+            log.error "10분 안에 재로그인이 ${times.size()}번 일어났습니다. 같은 나비엔 계정을 폰 앱·Docker 브리지·" +
+                "다른 허브가 같이 쓰고 있을 가능성이 큽니다 (계정당 로그인 세션 1개). 허브 전용 계정을 따로 만드세요."
+        }
+        state.conflictSuspected = true
+    } else {
+        state.conflictSuspected = false
+    }
+}
+
+private void scheduleLoginRetry() {
+    if (state.loginFatal) {
+        log.error "로그인 재시도 중단 — 아이디/비밀번호를 확인한 뒤 앱에서 '로그인 및 기기 검색'을 눌러주세요. " +
+            "(비밀번호 5회 실패 시 계정 잠금을 막기 위해 자동 재시도하지 않습니다)"
+        return
+    }
+    List<Integer> backoff = [30, 60, 120, 300, 600]
+    int n = (state.loginRetry ?: 0) as int
+    int delay = backoff[Math.min(n, backoff.size() - 1)]
+    state.loginRetry = n + 1
+    log.info "${delay}초 뒤 로그인 재시도 예정 (${n + 1}번째)"
+    runIn(delay, "retryLogin")
 }
 
 private String extractText(data) {
@@ -397,10 +502,14 @@ private Map formLogin() {
 
     if (!html) throw new Exception("로그인 응답을 받지 못했습니다 (status=${status}).")
 
+    // 아이디/비밀번호 문제는 재시도해도 같은 결과이고, 5회 실패하면 계정이 잠기므로
+    // fatal 로 표시해 자동 재시도를 막는다.
     if (html.contains('id="loginFailPopup" style="display:none;"')) {
+        state.loginFatal = true
         throw new Exception(authErrorMessage(html))
     }
     if (html.contains("passwordChg")) {
+        state.loginFatal = true
         throw new Exception("서버가 비밀번호 변경을 요구합니다. 나비엔 앱/웹에서 먼저 처리해주세요.")
     }
 
@@ -453,13 +562,16 @@ private Map authedPost(String path, String rawBody) {
 }
 
 private Map authedRequest(String method, String path, String rawBody) {
+    if (!state.accessToken && !state.loginFatal) login("control-no-token")
     def result = rawRequest(method, path, rawBody, state.accessToken)
-    // code 404/407은 JSON 바디 레벨의 "세션 무효" 응답, code -1은 rawRequest가
-    // HTTP 레벨 예외(403 등)를 잡아 만든 값이다 — 둘 다 재로그인 후 재시도 대상.
-    if (result?.code in [CODE_NOT_AUTHORIZED, CODE_TOKEN_EXPIRED, -1]) {
-        if (logEnable) log.debug "세션 무효 가능성(code=${result?.code}) — 재로그인 후 재시도"
-        login()
-        if (!state.accessToken) return result
+    // code 404/407은 JSON 바디 레벨의 "세션 무효" 응답이고, code -1은 rawRequest가
+    // HTTP 레벨 예외를 잡아 만든 값이다. 재로그인은 다른 세션을 끊으므로
+    // 세션 무효가 확실한 경우(404/407, HTTP 401/403)에만 한다 — 네트워크 순단·5xx는 그대로 실패 반환.
+    boolean sessionInvalid = result?.code in [CODE_NOT_AUTHORIZED, CODE_TOKEN_EXPIRED] ||
+        (result?.code == -1 && result?.http in [401, 403])
+    if (sessionInvalid) {
+        if (logEnable) log.debug "세션 무효(code=${result?.code}, http=${result?.http}) — 재로그인 후 재시도"
+        if (!login("session-invalid")) return result
         result = rawRequest(method, path, rawBody, state.accessToken)
     }
     return result
@@ -482,7 +594,7 @@ private Map rawRequest(String method, String path, String rawBody, String token)
         }
     } catch (Exception e) {
         log.warn "${path} 요청 실패: ${e.message}"
-        payload = [code: -1, msg: e.message]
+        payload = [code: -1, msg: e.message, http: httpStatusOf(e)]
     }
     return payload
 }
