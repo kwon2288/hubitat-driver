@@ -229,7 +229,7 @@ vary by hub firmware build. If it doesn't work, REST control still does.
 1. **Drivers Code** → **New Driver** → paste
    `onhub-mode/drivers/navien-smart-mat-onhub.groovy` → **Save**. Then do the
    same for `onhub-mode/drivers/navien-smart-mat-zone.groovy` (the component
-   driver for per-zone thermostats) — without it the zone thermostats aren't
+   driver for per-zone sliders) — without it the zone sliders aren't
    created (a warning is logged).
 2. **Apps Code** → **New App** → paste
    `onhub-mode/apps/navien-mate-connector.groovy` → **Save**.
@@ -289,31 +289,26 @@ expose the same capabilities, attributes, and commands.
 ### Controlling left/right separately from HomeKit (on-hub path)
 
 Exporting only the mat device to HomeKit shows a plain power switch. The
-on-hub driver therefore creates a **thermostat child device per zone**
+on-hub driver therefore creates a **slider child device per zone**
 (`… 왼쪽` / left, `… 오른쪽` / right). Select those children in the HomeKit
-Integration app (or Maker API / Homebridge) to control each zone on its own.
-
-The mat has no real temperature reading, just levels 1–8, so each level is
-mapped to a **made-up temperature**:
+Integration app (or Maker API / Homebridge) to switch each zone on/off and set
+its level with a slider (they show up as lights in the Home app).
 
 | Level | 0 (standby) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| HomeKit setpoint | mode `off` | 21°C | 22°C | 23°C | 24°C | 25°C | 26°C | 27°C | 28°C |
+| Slider | off / 0% | 13% | 25% | 38% | 50% | 63% | 75% | 88% | 100% |
 
-- Setpoint = **20 + level**. The "current temperature" is reported equal to the
-  setpoint (there is no sensor), so the Home app always shows it as reached.
-- Only `off` / `heat` modes exist. Switching to `heat` resumes the zone's last
-  level (3 if none).
-- Whatever temperature HomeKit sends is **snapped to the nearest level** and
-  clamped to levels 1–8 (25.4°C → level 5, 35°C → level 8). HomeKit's range is
-  10–38°C, so dragging outside the mapped range snaps back to the nearest
-  level's temperature.
-- To turn this off, untick "구역별 온도조절기 기기 만들기" (create per-zone
-  thermostats) in the driver preferences — already-created children are not
+- One level = 12.5% on the slider: 50% is level 4, 100% is level 8.
+- A slider value is **snapped to the nearest level** (60% → level 5 = 63%);
+  anything above 0% is at least level 1.
+- **On** resumes the zone's last level (3 if none).
+- The child also has a `heatLevel` (0–8) / `heatLevelLabel` attribute and a
+  `setHeatLevel(0–8)` command, so Hubitat rules and dashboards can use plain
+  levels.
+- To turn this off, untick "구역별 슬라이더 기기 만들기" (create per-zone
+  slider devices) in the driver preferences — already-created children are not
   removed; delete them by hand.
-- A °F hub is handled by converting internally.
-- This is an on-hub-path feature only, and how it actually looks and behaves
-  in the HomeKit Integration app / Siri hasn't been thoroughly verified yet.
+- This is an on-hub-path feature only.
 
 ## Limitations
 
