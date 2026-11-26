@@ -41,6 +41,10 @@
  *      firmware threshold (DP105, unreliable) does not track the real load.
  *    - If it is left blank, the device's own pressure_state (DP1) is used.
  *
+ *  Version: 1.3.6
+ *    - FIX (ZG-210Z): the detection threshold could not be changed from the device page (saves ran
+ *      but the old value stayed). The preference is renamed from "threshold" to
+ *      "detectionThresholdPref"; an existing value is migrated automatically
  *  Version: 1.3.5
  *    - FIX (ZG-210Z): detectionThreshold in Current States could stay at an old value when the
  *      preference was changed without updated() running (e.g. saved from another tool). It is now
@@ -76,7 +80,7 @@
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.3.5"
+@Field static final String VERSION = "1.3.6"
 
 // ZG-210Z driver-side detection: hysteresis so values hovering at the threshold do not flicker.
 // Capped at half the threshold, so a small threshold can still clear (see hysteresisFor()).
@@ -156,7 +160,7 @@ metadata {
               range: "0..3600", required: false
         input name: "presenceDelayPref", type: "number", title: "Delay before reporting 'not present' (s, 0-3600)",
               range: "0..3600", required: false
-        input name: "threshold", type: "number", title: "Detection threshold / 감지 기준값 (ZG-210Z only)",
+        input name: "detectionThresholdPref", type: "number", title: "Detection threshold / 감지 기준값 (ZG-210Z only)",
               description: "Present when currentPressure is at or above this value. Leave blank to use the device's own judgement / 비워 두면 기기 자체 판정 사용",
               required: false
         input name: "tempCalPref", type: "decimal", title: "Temperature calibration (°C, -2.0 to 2.0; ZG-210Z only)",
@@ -213,11 +217,12 @@ def updated() {
         queueSetting(104, settings.humCalPref, "humidityCalibration", -30, 30, 1)
         flushPending(true)
 
+        migrateThreshold()
         syncThresholdAttribute()
 
         // Apply a new threshold right away instead of waiting for the next report
         def cp = device.currentValue("currentPressure")
-        if (settings.threshold != null && cp != null) evaluatePressure(cp as int)
+        if (thresholdSetting() != null && cp != null) evaluatePressure(cp as int)
         return
     }
 
@@ -410,12 +415,27 @@ private void processDpSeq9(int dp, int type, long v) {
 }
 
 // _TZE200_ihizzpzn (ZG-210Z)
+// Detection threshold (ZG-210Z). Older versions stored it as "threshold"; that value is moved to
+// "detectionThresholdPref" once, then the old setting is removed so a later clear is not undone.
+private def thresholdSetting() {
+    return (settings.detectionThresholdPref != null) ? settings.detectionThresholdPref : settings.threshold
+}
+
+private void migrateThreshold() {
+    if (settings.threshold == null) return
+    if (settings.detectionThresholdPref == null) {
+        device.updateSetting("detectionThresholdPref", [value: settings.threshold as int, type: "number"])
+        logInfo "detection threshold setting migrated (${settings.threshold})"
+    }
+    device.removeSetting("threshold")
+}
+
 // Mirror the configured threshold into Current States (cleared when blank = device judgement).
 // Called on Save Preferences and on every report, so it never lags the setting.
 private void syncThresholdAttribute() {
     def shown = device.currentValue("detectionThreshold")
-    if (settings.threshold != null) {
-        int th = settings.threshold as int
+    if (thresholdSetting() != null) {
+        int th = thresholdSetting() as int
         if (shown == null || (shown as int) != th) emit("detectionThreshold", th)
     } else if (shown != null) {
         device.deleteCurrentState("detectionThreshold")
@@ -423,17 +443,18 @@ private void syncThresholdAttribute() {
 }
 
 private void processDpZg210z(int dp, int type, long v) {
+    migrateThreshold()
     syncThresholdAttribute()
     switch (dp) {
         case 1:
             String state = PRESSURE_STATE[(int) v] ?: "unknown(${v})"
             emit("pressureState", state)
             // With a detection threshold set, presence comes from evaluatePressure()
-            if (settings.threshold == null) setPresence(v == 1L || v == 2L)
+            if (thresholdSetting() == null) setPresence(v == 1L || v == 2L)
             break
         case 2:
             emit("currentPressure", (int) v)
-            if (settings.threshold != null) evaluatePressure((int) v)
+            if (thresholdSetting() != null) evaluatePressure((int) v)
             break
         case 15:
             emit("battery", (int) v, "%")
@@ -473,7 +494,7 @@ private static boolean isLoaded(int cp, int th, boolean present) {
 }
 
 private void evaluatePressure(int cp) {
-    int th = settings.threshold as int
+    int th = thresholdSetting() as int
     boolean present = device.currentValue("presence") == "present"
     boolean loaded = isLoaded(cp, th, present)
     logDebug "currentPressure ${cp} vs threshold ${th} (clear below ${th - hysteresisFor(th)}) -> ${loaded ? 'loaded' : 'empty'}"
@@ -498,7 +519,7 @@ def goVacant() {
     state.vacantPending = false
     // Re-check: pressure may have come back during the delay
     def cp = device.currentValue("currentPressure")
-    if (settings.threshold != null && cp != null && isLoaded(cp as int, settings.threshold as int, true)) return
+    if (thresholdSetting() != null && cp != null && isLoaded(cp as int, thresholdSetting() as int, true)) return
     setPresence(false)
 }
 
